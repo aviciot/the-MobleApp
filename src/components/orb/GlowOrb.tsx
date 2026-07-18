@@ -1,12 +1,5 @@
 import React from 'react';
-import {
-  Circle,
-  RadialGradient,
-  Group,
-  BlurMask,
-  vec,
-  Paint,
-} from '@shopify/react-native-skia';
+import { Circle, Group } from '@shopify/react-native-skia';
 import type { SharedValue } from 'react-native-reanimated';
 import { useDerivedValue } from 'react-native-reanimated';
 
@@ -20,63 +13,44 @@ interface GlowOrbProps {
   secondaryColor: string;
 }
 
-export function GlowOrb({ cx, cy, baseRadius, amplitude, clock, primaryColor, secondaryColor }: GlowOrbProps) {
-  // Breathing radius — oscillates slowly
+// Rim assembled from white dust dots — dense, varied, slightly scattered
+const RIM_DOTS = Array.from({ length: 220 }, (_, i) => ({
+  angle: (i / 220) * Math.PI * 2 + (Math.random() - 0.5) * 0.08,
+  visible: Math.random() > 0.15,
+  size: Math.random() < 0.1 ? 1.8 + Math.random() * 1.2 : 0.5 + Math.random() * 0.8,
+  radiusOffset: (Math.random() - 0.5) * 6,
+  twinkleSpeed: 0.3 + Math.random() * 1.2,
+  twinklePhase: Math.random() * Math.PI * 2,
+})).filter(d => d.visible);
+
+export function GlowOrb({ cx, cy, baseRadius, amplitude, clock }: GlowOrbProps) {
   const radius = useDerivedValue(() => {
-    const breath = 1 + 0.04 * Math.sin((clock.value / 3200) * Math.PI * 2);
-    const pulse = 1 + amplitude.value * 0.22;
+    const breath = 1 + 0.03 * Math.sin((clock.value / 3200) * Math.PI * 2);
+    const pulse = 1 + amplitude.value * 0.1;
     return baseRadius * breath * pulse;
   });
 
-  // Outer aura opacity breathes gently
-  const auraOpacity = useDerivedValue(() => {
-    const base = 0.30 + amplitude.value * 0.15;
-    const breath = Math.sin((clock.value / 3200) * Math.PI * 2) * 0.05;
-    return Math.min(0.6, base + breath);
-  });
-
-  const midOpacity = useDerivedValue(() => 0.5 + amplitude.value * 0.2);
+  const clockSecs = useDerivedValue(() => clock.value / 1000);
 
   return (
     <Group>
-      {/* Outer aura */}
-      <Group opacity={auraOpacity}>
-        <Circle cx={cx} cy={cy} r={baseRadius * 3.2}>
-          <RadialGradient
-            c={vec(cx, cy)}
-            r={baseRadius * 3.2}
-            colors={[primaryColor + '88', 'transparent']}
-          />
-          <BlurMask blur={60} style="normal" />
-        </Circle>
-      </Group>
-
-      {/* Mid glow */}
-      <Group opacity={midOpacity}>
-        <Circle cx={cx} cy={cy} r={baseRadius * 1.8}>
-          <RadialGradient
-            c={vec(cx, cy)}
-            r={baseRadius * 1.8}
-            colors={[primaryColor + 'CC', secondaryColor + '44']}
-          />
-          <BlurMask blur={30} style="normal" />
-        </Circle>
-      </Group>
-
-      {/* Core sphere */}
-      <Circle cx={cx} cy={cy} r={radius}>
-        <RadialGradient
-          c={vec(cx, cy)}
-          r={baseRadius}
-          colors={['#FFFFFF99', primaryColor + 'DD', secondaryColor + '88']}
-        />
-        <BlurMask blur={8} style="normal" />
-      </Circle>
-
-      {/* Rim highlight */}
-      <Circle cx={cx} cy={cy} r={radius} style="stroke" strokeWidth={1.5}>
-        <Paint color={secondaryColor + '99'} />
-      </Circle>
+      {RIM_DOTS.map((dot, i) => {
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        const opacity = useDerivedValue(() => {
+          const t = clockSecs.value;
+          // No breathing — just twinkle
+          return 0.4 + 0.6 * Math.abs(Math.sin(t * dot.twinkleSpeed + dot.twinklePhase));
+        });
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        const dcx = useDerivedValue(() => cx + Math.cos(dot.angle) * (radius.value + dot.radiusOffset));
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        const dcy = useDerivedValue(() => cy + Math.sin(dot.angle) * (radius.value + dot.radiusOffset));
+        return (
+          <Group key={i} opacity={opacity}>
+            <Circle cx={dcx} cy={dcy} r={dot.size} color="#FFFFFF" />
+          </Group>
+        );
+      })}
     </Group>
   );
 }

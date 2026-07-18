@@ -6,6 +6,7 @@
     "@shopify/react-native-skia": "2.6.2",
     "expo": "~57.0.4",
     "expo-blur": "~57.0.0",
+    "expo-dev-client": "~57.0.7",
     "expo-haptics": "~57.0.0",
     "expo-linear-gradient": "~57.0.0",
     "expo-local-authentication": "~57.0.0",
@@ -20,12 +21,13 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "babel-preset-expo": "^57.0.2",
     "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web"
   },
   "private": true

@@ -13,7 +13,7 @@
 Open a terminal, run:
 
 ```
-cd "C:\Users\acohen.SHIFT4CORP\Desktop\PythonProjects\theM\app\theM"
+cd "C:\Users\acohen.SHIFT4CORP\Desktop\PythonProjects\theM\app\theM" 
 npx expo start --clear
 ```
 

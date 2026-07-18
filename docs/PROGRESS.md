@@ -1,6 +1,6 @@
 # The-M Mobile App — Progress
 
-Last updated: 2026-07-14
+Last updated: 2026-07-18
 
 ---
 
@@ -29,6 +29,10 @@ Last updated: 2026-07-14
 - [x] TypeScript zero errors
 - [x] Git initialized, committed as avicoiot@gmail.com
 - [x] Architecture and progress docs
+- [x] `expo-dev-client` installed — enables physical device dev workflow
+- [x] `eas.json` configured — development/preview/production build profiles
+- [x] `app.json` updated — proper package name `com.avicoiot.them`, EAS plugin
+- [x] `docs/PHONE_SETUP.md` — complete guide for Samsung S24 Ultra USB dev setup
 
 ---
 

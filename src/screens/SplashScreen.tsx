@@ -5,14 +5,11 @@ import {
   useSharedValue,
   withTiming,
   withDelay,
-  withSequence,
   withSpring,
-  runOnJS,
+  useAnimatedStyle,
 } from 'react-native-reanimated';
 import Animated from 'react-native-reanimated';
-import { useAnimatedStyle } from 'react-native-reanimated';
 import { Colors } from '../theme/colors';
-import { Durations, Easings, Springs } from '../theme/motion';
 import { GlowOrb } from '../components/orb/GlowOrb';
 import { OrbParticles } from '../components/orb/OrbParticles';
 import { ParticleField } from '../components/orb/ParticleField';
@@ -29,9 +26,6 @@ export function SplashScreen({ onFinish }: SplashScreenProps) {
   const cy = height * 0.42;
   const baseRadius = Math.min(width, height) * 0.18;
 
-  // Animation shared values
-  const orbScale = useSharedValue(0);
-  const orbOpacity = useSharedValue(0);
   const fieldIntensity = useSharedValue(0);
   const energy = useSharedValue(0);
   const amplitude = useSharedValue(0.05);
@@ -39,22 +33,13 @@ export function SplashScreen({ onFinish }: SplashScreenProps) {
   const wordmarkY = useSharedValue(20);
 
   useEffect(() => {
-    // Ignition sequence
-    orbOpacity.value = withTiming(1, { duration: 200 });
-    orbScale.value = withTiming(1, { duration: 600, easing: Easings.decel });
-
     fieldIntensity.value = withDelay(900, withTiming(0.4, { duration: 700 }));
-    energy.value = withDelay(700, withSpring(0.6, Springs.soft));
+    energy.value = withDelay(700, withSpring(0.6));
     amplitude.value = withDelay(400, withTiming(0.15, { duration: 800 }));
+    wordmarkOpacity.value = withDelay(1200, withTiming(1, { duration: 600 }));
+    wordmarkY.value = withDelay(1200, withTiming(0, { duration: 600 }));
 
-    wordmarkOpacity.value = withDelay(1200, withTiming(1, { duration: 600, easing: Easings.decel }));
-    wordmarkY.value = withDelay(1200, withTiming(0, { duration: 600, easing: Easings.decel }));
-
-    // Navigate after sequence
-    const timer = setTimeout(() => {
-      runOnJS(onFinish)();
-    }, 2400);
-
+    const timer = setTimeout(onFinish, 2800);
     return () => clearTimeout(timer);
   }, []);
 
@@ -92,6 +77,7 @@ export function SplashScreen({ onFinish }: SplashScreenProps) {
           clock={clock}
           color={Colors.orbThinking}
         />
+
       </Canvas>
 
       <Animated.View style={[styles.wordmark, wordmarkStyle]}>

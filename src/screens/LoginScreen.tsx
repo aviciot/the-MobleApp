@@ -80,6 +80,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           clock={clock}
           color={Colors.orbIdle}
         />
+
       </Canvas>
 
       {/* Top brand */}
