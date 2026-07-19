@@ -14,7 +14,8 @@
         {
           "microphonePermission": "The-M needs your microphone to hear you speak."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "developmentClient": {
       "silentLaunch": true
