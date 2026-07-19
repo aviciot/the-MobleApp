@@ -1,9 +1,18 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { Group, Path, Skia } from '@shopify/react-native-skia';
+import {
+  useDerivedValue,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+  withDelay,
+  cancelAnimation,
+} from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
-import { useDerivedValue } from 'react-native-reanimated';
+import type { OrbMode } from './types';
 
-const RAW_POLYGONS = [
+const POLYGON_POINTS = [
   "88,77 184,146 244,191 281,217 336,259 355,272 358,272 367,267 372,266 379,262 391,258 433,239 440,237 473,222 513,206 520,202 546,192 555,187 558,187 446,102 433,91 421,83 403,68 397,65 392,60 331,15 318,4 274,19 264,21 246,28 239,29 217,37 214,37 211,39 201,41 189,46 186,46 154,57 151,57 148,59 141,60 138,62 104,73 101,73 98,75",
   "1323,77 1313,75 1292,67 1289,67 1239,50 1236,50 1233,48 1230,48 1189,34 1176,31 1094,4 1085,12 1074,19 1053,36 959,106 855,187 876,196 881,197 973,237 980,239 1034,263 1048,268 1055,272 1059,272 1139,213 1146,209 1177,185 1188,178 1208,162 1284,107",
   "70,97 70,334 71,335 72,350 76,365 104,429 108,435 180,486 184,490 245,534 345,609 339,293 305,269 281,250 252,230 182,177 179,176 153,156 150,155",
@@ -22,51 +31,139 @@ const RAW_POLYGONS = [
 
 const SVG_W = 1407;
 const SVG_H = 1118;
+const OUTER_INDICES = [0, 1, 2, 3, 6, 7, 10, 11, 12, 13];
+const INNER_INDICES = [4, 5, 8, 9];
 
-function parsePolygonPoints(pointStr: string): { x: number; y: number }[] {
-  const nums = pointStr.trim().split(/[\s,]+/).map(Number);
+// Unique flicker timing per polygon
+const FLICKER_TIMING = [...OUTER_INDICES, ...INNER_INDICES].map((_, i) => ({
+  on1:  80  + (i * 173) % 250,
+  off1: 300 + (i * 251) % 600,
+  on2:  50  + (i * 137) % 200,
+  off2: 400 + (i * 317) % 500,
+}));
+
+function parsePoints(s: string) {
+  const nums = s.trim().split(/[\s,]+/).map(Number);
   const pts: { x: number; y: number }[] = [];
-  for (let i = 0; i + 1 < nums.length; i += 2) {
-    pts.push({ x: nums[i], y: nums[i + 1] });
-  }
+  for (let i = 0; i + 1 < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] });
   return pts;
 }
 
 interface HolographicLogoProps {
   cx: number;
   cy: number;
-  size: number;
+  radius: number;
+  mode: OrbMode;
   clock: SharedValue<number>;
-  amplitude: SharedValue<number>;
   energy: SharedValue<number>;
 }
 
-export function HolographicLogo({ cx, cy, size, clock, amplitude, energy }: HolographicLogoProps) {
+export function HolographicLogo({ cx, cy, radius, mode, clock, energy }: HolographicLogoProps) {
+  const size = radius * 1.28;
+  const scale = size / Math.max(SVG_W, SVG_H);
+  const offsetX = cx - (SVG_W * scale) / 2;
+  const offsetY = cy - (SVG_H * scale) / 2;
+
   const paths = useMemo(() => {
-    const scale = size / Math.max(SVG_W, SVG_H);
-    const offsetX = cx - (SVG_W * scale) / 2;
-    const offsetY = cy - (SVG_H * scale) / 2;
-    return RAW_POLYGONS.map((pointStr) => {
-      const pts = parsePolygonPoints(pointStr);
+    return POLYGON_POINTS.map((pts) => {
+      const points = parsePoints(pts);
       const path = Skia.Path.Make();
-      pts.forEach((pt, i) => {
-        const sx = offsetX + pt.x * scale;
-        const sy = offsetY + pt.y * scale;
-        if (i === 0) path.moveTo(sx, sy);
-        else path.lineTo(sx, sy);
+      points.forEach((pt, i) => {
+        const x = offsetX + pt.x * scale;
+        const y = offsetY + pt.y * scale;
+        if (i === 0) path.moveTo(x, y);
+        else path.lineTo(x, y);
       });
       path.close();
       return path;
     });
-  }, [cx, cy, size]);
+  }, [offsetX, offsetY, scale]);
 
-  // Gentle breathe
-  const opacity = useDerivedValue(() => 0.7 + amplitude.value * 0.3);
+  // 14 fixed shared values — never changes count so hooks rule is satisfied
+  const f0  = useSharedValue(1); const f1  = useSharedValue(1);
+  const f2  = useSharedValue(1); const f3  = useSharedValue(1);
+  const f4  = useSharedValue(1); const f5  = useSharedValue(1);
+  const f6  = useSharedValue(1); const f7  = useSharedValue(1);
+  const f8  = useSharedValue(1); const f9  = useSharedValue(1);
+  const f10 = useSharedValue(1); const f11 = useSharedValue(1);
+  const f12 = useSharedValue(1); const f13 = useSharedValue(1);
+  const flick = [f0,f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13];
+
+  const isActive = mode === 'userSpeaking' || mode === 'listening';
+
+  useEffect(() => {
+    if (isActive) {
+      flick.forEach((sv, i) => {
+        const t = FLICKER_TIMING[i];
+        sv.value = withDelay(
+          (i * 53) % 300,
+          withRepeat(
+            withSequence(
+              withTiming(0.0, { duration: t.on1 }),
+              withTiming(1.0, { duration: t.off1 }),
+              withTiming(0.2, { duration: t.on2 }),
+              withTiming(1.0, { duration: t.off2 }),
+            ),
+            -1, false,
+          ),
+        );
+      });
+    } else {
+      flick.forEach((sv) => {
+        cancelAnimation(sv);
+        sv.value = withTiming(1.0, { duration: 400 });
+      });
+    }
+    return () => flick.forEach((sv) => cancelAnimation(sv));
+  }, [isActive]);
+
+  // Derived opacity per polygon
+  const o0  = useDerivedValue(() => f0.value);
+  const o1  = useDerivedValue(() => f1.value);
+  const o2  = useDerivedValue(() => f2.value);
+  const o3  = useDerivedValue(() => f3.value);
+  const o4  = useDerivedValue(() => f4.value);
+  const o5  = useDerivedValue(() => f5.value);
+  const o6  = useDerivedValue(() => f6.value);
+  const o7  = useDerivedValue(() => f7.value);
+  const o8  = useDerivedValue(() => f8.value);
+  const o9  = useDerivedValue(() => f9.value);
+  const o10 = useDerivedValue(() => f10.value);
+  const o11 = useDerivedValue(() => f11.value);
+  const o12 = useDerivedValue(() => f12.value);
+  const o13 = useDerivedValue(() => f13.value);
+
+  const outerOp = [o0, o1, o2, o3, o6, o7, o10, o11, o12, o13];
+  const innerOp = [o4, o5, o8, o9];
 
   return (
-    <Group opacity={opacity}>
-      {paths.map((path, i) => (
-        <Path key={i} path={path} style="fill" color="#FFFFFFDD" />
+    <Group>
+      {/* Outer polygons — clean thin white lines, flicker on press */}
+      {OUTER_INDICES.map((idx, k) => (
+        <Path
+          key={`outer-${idx}`}
+          path={paths[idx]}
+          style="stroke"
+          strokeWidth={scale * 3.5}
+          color="#FFFFFF"
+          strokeCap="round"
+          strokeJoin="round"
+          opacity={outerOp[k]}
+        />
+      ))}
+
+      {/* Inner polygons — dimmer, depth */}
+      {INNER_INDICES.map((idx, k) => (
+        <Path
+          key={`inner-${idx}`}
+          path={paths[idx]}
+          style="stroke"
+          strokeWidth={scale * 2.5}
+          color="#7799BB"
+          strokeCap="round"
+          strokeJoin="round"
+          opacity={innerOp[k]}
+        />
       ))}
     </Group>
   );

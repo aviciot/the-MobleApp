@@ -75,12 +75,12 @@ export function HomeScreen() {
     switch (sessionState) {
       case 'userSpeaking':
         setWaveformColor(theme.orbStateColors.user);
-        energy.value = withSpring(0.85, Springs.soft);
+        energy.value = withTiming(0.75, { duration: 1200 });
         amplitude.value = withTiming(0.4, { duration: Durations.base });
         break;
       case 'aiSpeaking':
         setWaveformColor(theme.orbStateColors.ai);
-        energy.value = withSpring(0.75, Springs.soft);
+        energy.value = withTiming(0.65, { duration: 1400 });
         amplitude.value = withTiming(0.35, { duration: Durations.base });
         break;
       case 'thinking':
@@ -123,6 +123,14 @@ export function HomeScreen() {
           clock={clock}
         />
       </Canvas>
+
+      {/* Invisible press target over orb */}
+      <Pressable
+        style={[styles.orbPressArea, { top: cy - baseRadius, left: cx - baseRadius, width: baseRadius * 2, height: baseRadius * 2, borderRadius: baseRadius }]}
+        onPressIn={!isBusy ? startRecording : undefined}
+        onPressOut={!isBusy ? stopRecording : undefined}
+        onPress={isBusy ? cancel : undefined}
+      />
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
@@ -168,26 +176,6 @@ export function HomeScreen() {
         <GridCardSystem />
       </View>
 
-      {/* Mic button — sits just below the orb */}
-      <View style={[styles.micArea, { bottom: insets.bottom + 80 }]}>
-        {isBusy ? (
-          <Pressable style={[styles.micBtn, styles.micBtnCancel, { borderColor: theme.accent }]} onPress={cancel}>
-            <Text style={[styles.micIcon, { color: theme.accent }]}>✕</Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            style={[
-              styles.micBtn,
-              { borderColor: isRecording ? theme.orbStateColors.user : theme.accent },
-              isRecording && { backgroundColor: theme.orbStateColors.user + '22' },
-            ]}
-            onPressIn={startRecording}
-            onPressOut={stopRecording}
-          >
-            <Text style={styles.micIcon}>🎤</Text>
-          </Pressable>
-        )}
-      </View>
 
       {/* Bottom nav */}
       <View style={[styles.bottomNav, { paddingBottom: insets.bottom + 8, backgroundColor: theme.navBackground, borderTopColor: theme.navBorder }]}>
@@ -268,26 +256,9 @@ const styles = StyleSheet.create({
     left: 0, right: 0,
     zIndex: 20,
   },
-  micArea: {
+  orbPressArea: {
     position: 'absolute',
-    left: 0, right: 0,
-    alignItems: 'center',
     zIndex: 40,
-  },
-  micBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
-  micBtnCancel: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-  },
-  micIcon: {
-    fontSize: 26,
   },
   bottomNav: {
     position: 'absolute',
