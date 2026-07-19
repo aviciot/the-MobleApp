@@ -9,13 +9,17 @@
 
 ## Quick context
 
-Voice-first AI mobile app. Central animated orb (Skia) reacts to WebRTC audio. AI responses appear as floating glass cards. Three screens: Splash → Login → Home.
+Voice-first AI mobile app. Central animated orb (Skia) reacts to audio. AI responses appear as floating glass cards. Three screens: Splash → Login → Home.
 
 **Stack:** React Native 0.86 · Expo SDK 57 · TypeScript · Reanimated 3 · Skia · Zustand · Gesture Handler
 
-**Current state:** UI shell complete with demo mode. WebRTC not yet wired. Auth not yet wired.
+**Current state:** Voice pipeline fully working end-to-end (record → STT → A2A orchestrator → TTS → playback). Auth not yet wired.
 
-**Next milestone:** Milestone 2 (Real Authentication) or Milestone 3 (WebRTC) — see `docs/PROGRESS.md`.
+**Voice pipeline:** `src/audio/VoiceController.ts` → `src/audio/GatewayClient.ts` (STT/TTS) + `src/ai/A2AClient.ts` (A2A orchestrator). See `docs/GATEWAY_INTEGRATION.md` for full API details including A2A JSON-RPC format, contextId handling, and endpoint specs.
+
+**Gateway config:** `src/config.ts` — baseUrl, appSlug, token.
+
+**Next milestone:** Milestone 2 (Real Authentication) — see `docs/PROGRESS.md`.
 
 ## Rules
 
