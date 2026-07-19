@@ -8,13 +8,23 @@
     "userInterfaceStyle": "dark",
     "backgroundColor": "#050510",
     "plugins": [
-      "expo-dev-client"
+      "expo-dev-client",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "The-M needs your microphone to hear you speak."
+        }
+      ]
     ],
+    "developmentClient": {
+      "silentLaunch": true
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.avicoiot.them"
     },
     "android": {
+      "newArchEnabled": false,
       "adaptiveIcon": {
         "backgroundColor": "#050510",
         "foregroundImage": "./assets/android-icon-foreground.png",

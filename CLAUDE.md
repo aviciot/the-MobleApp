@@ -26,6 +26,7 @@ Voice-first AI mobile app. Central animated orb (Skia) reacts to WebRTC audio. A
 5. Keep `docs/ARCHITECTURE.md` updated when adding new components, stores, or changing the transport layer.
 6. All animations via Reanimated 3 (UI thread). No `Animated` from React Native core.
 7. Skia components render into the single full-screen `<Canvas>` per screen — do not add additional Canvas elements unless you have a documented reason.
+8. **Native packages require a new EAS build before testing on device.** Any package that contains native code (has an `android/` or `ios/` folder — e.g. `expo-av`, `expo-local-authentication`, `react-native-webrtc`) must be followed by `eas build --platform android --profile development` before the app will work on a physical device. Pure JS packages (Zustand, etc.) hot-reload and do not need a rebuild.
 
 ## Git
 

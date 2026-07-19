@@ -1,90 +1,77 @@
 # Phone Dev Setup — Samsung S24 Ultra
 
-This replaces the Android emulator. You build once in the cloud, then hot-reload runs over USB.
+## Where things are installed
+
+| Tool | Location |
+|------|----------|
+| ADB (Android Debug Bridge) | `C:\platform-tools\platform-tools\adb.exe` |
+| Project | `C:\Users\acohen.SHIFT4CORP\Desktop\PythonProjects\theM\app\theM` |
+| Reconnect script | `C:\Users\acohen.SHIFT4CORP\Desktop\PythonProjects\theM\app\theM\reconnect.ps1` |
 
 ---
 
-## One-time setup
+## Every time you replug the USB — one command only
 
-### 1. Enable USB Debugging on S24 Ultra
-
-1. Settings → About phone → Software information
-2. Tap **Build number** 7 times (you'll see "You are now a developer")
-3. Back → Settings → Developer options
-4. Enable **USB debugging**
-5. Enable **Stay awake** (keeps screen on while charging/plugged in)
-
-### 2. Install Android Platform Tools (just adb, no Android Studio)
-
-Download from: https://developer.android.com/tools/releases/platform-tools
-- Download the Windows zip
-- Unzip to `C:\adb`
-- Add to PATH: Search "Environment Variables" → System Variables → Path → Add `C:\adb`
-- Open a new PowerShell and run: `adb version` — should print a version number
-
-### 3. Install expo-dev-client and EAS CLI
-
-Run in PowerShell from the project directory:
-```
-cd "C:\Users\acohen.SHIFT4CORP\Desktop\PythonProjects\theM\app\theM"
-npx expo install expo-dev-client
-npm install -g eas-cli
-```
-
-### 4. Create an Expo account and link project
+Run this in the Claude Code prompt:
 
 ```
-eas login
-eas init
+! powershell -File "C:\Users\acohen.SHIFT4CORP\Desktop\PythonProjects\theM\app\theM\reconnect.ps1"
 ```
 
-`eas init` will fill in the `projectId` in app.json automatically.
+This script does two things automatically:
+1. `adb reverse tcp:8081 tcp:8081` — tunnels Metro to the phone
+2. Launches the app directly into Metro via deep link — **no IP prompt, no manual entry**
 
-### 5. Cloud build (runs on Expo's servers — no local Gradle needed)
-
-```
-eas build --platform android --profile development
-```
-
-- Takes 10-15 minutes first time (Expo's servers compile Skia, Reanimated etc.)
-- When done, you get a QR code / download link for the APK
-- Install the APK on your S24 Ultra (allow "Install unknown apps" when prompted)
+The app slug is `avi` (from `app.json`), so the deep link is `exp+avi://expo-development-client/?url=http://localhost:8081`.
 
 ---
 
-## Every dev session (instant)
+## How Metro is started
 
-1. Plug S24 Ultra into PC via USB-C
-2. On phone: tap "Allow USB debugging" when prompted (first time only)
-3. Run in PowerShell:
+Metro is started with `--localhost` flag so it always advertises `localhost:8081` (not a network IP):
+
+```powershell
+cd C:\Users\acohen.SHIFT4CORP\Desktop\PythonProjects\theM\app\theM
+npm start
+# equivalent to: expo start --localhost
 ```
-adb reverse tcp:8081 tcp:8081
-cd "C:\Users\acohen.SHIFT4CORP\Desktop\PythonProjects\theM\app\theM"
-npx expo start --dev-client
-```
-4. Open the **theM** app on your phone
-5. It connects to your Metro server automatically
-6. Save any file → phone updates in ~1 second
+
+This is set in `package.json` `"start"` script.
 
 ---
 
-## When do you need to rebuild (eas build again)?
+## First-time phone setup (done once)
 
-Only when you:
-- Add a new native package (npm install something with native code)
-- Change app.json plugins
-- Bump Expo SDK version
+1. **Settings → About phone → Software information → tap "Build number" 7 times** (enables Developer Options)
+2. **Settings → Developer options → USB debugging → ON**
+3. Plug USB into laptop, tap **"Allow USB debugging"** on the phone when prompted
 
-Regular JS/React changes never need a rebuild — they hot reload.
+---
+
+## Full reconnect (Metro not running)
+
+1. Start Metro: `npm start` in the project folder
+2. Run reconnect script: `! powershell -File "...\reconnect.ps1"`
 
 ---
 
 ## Troubleshooting
 
-**`adb devices` shows nothing:** Try a different USB cable (must be data cable, not charge-only). Also check Developer Options → USB debugging is on.
+| Problem | Fix |
+|---------|-----|
+| `adb` not recognized | Use full path `C:\platform-tools\platform-tools\adb.exe` |
+| `unauthorized` in device list | Check phone screen, tap Allow |
+| `Port 8081 already in use` | Kill node: `Get-Process -Name "node" | Stop-Process -Force`, then restart Metro |
+| App still shows IP prompt | Make sure Metro was started with `npm start` (uses `--localhost`), then re-run reconnect script |
+| Phone not detected | Different USB cable — some are charge-only, not data |
+| App opens but shows old code | Run reconnect script again, then shake phone → Reload JS |
 
-**Phone shows "Allow USB debugging?" prompt:** Tap Allow (check "Always allow from this computer").
+---
 
-**Metro can't connect:** Run `adb reverse tcp:8081 tcp:8081` again. This must be run after every USB reconnect.
+## When you need a full EAS cloud rebuild
 
-**App crashes on launch:** Run `adb logcat | grep -i "them\|error\|fatal"` to see native logs.
+Only needed when adding a new native package or changing `app.json` plugins. Regular code changes hot reload instantly.
+
+```powershell
+eas build --platform android --profile development
+```
