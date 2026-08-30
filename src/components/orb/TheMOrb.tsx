@@ -10,6 +10,7 @@ import {
   withTiming,
   withRepeat,
   withSequence,
+  withSpring,
 } from 'react-native-reanimated';
 import { orbEffect } from './theMOrbShader';
 import { spaceBackgroundEffect } from './spaceBackgroundShader';
@@ -41,6 +42,7 @@ export function TheMOrb({ cx, cy, radius, mode, energy, clock, assembleOnMount }
   const dustGain      = useSharedValue(MODE_PARAMS.idle.dust);
   const modeFloat     = useSharedValue(0);
   const electric      = useSharedValue(0);
+  const rotation      = useSharedValue(0); // degrees, drives slow sway during aiSpeaking
 
   // Theme color channels
   const innerLow  = useRGB(theme.orb.innerLow);
@@ -70,6 +72,21 @@ export function TheMOrb({ cx, cy, radius, mode, energy, clock, assembleOnMount }
     } else {
       electric.value = withTiming(0, { duration: 500 });
     }
+
+    // Gentle sway rotation while AI is speaking
+    if (mode === 'aiSpeaking') {
+      rotation.value = withRepeat(
+        withSequence(
+          withTiming(4,  { duration: 1800 }),
+          withTiming(-4, { duration: 2200 }),
+          withTiming(2,  { duration: 1600 }),
+          withTiming(-2, { duration: 2000 }),
+        ),
+        -1, true,
+      );
+    } else {
+      rotation.value = withSpring(0, { damping: 8, stiffness: 40 });
+    }
   }, [mode]);
 
   // Cross-fade theme colors on theme change
@@ -96,6 +113,11 @@ export function TheMOrb({ cx, cy, radius, mode, energy, clock, assembleOnMount }
     band.b.value      = withTiming(c.band[2], d);
   }, [theme]);
 
+  const groupTransform = useDerivedValue(() => {
+    const rad = (rotation.value * Math.PI) / 180;
+    return [{ rotate: rad }] as const;
+  });
+
   const uniforms = useDerivedValue(() => ({
     uTime:          clock.value / 1000,
     uEnergy:        energy.value,
@@ -118,15 +140,17 @@ export function TheMOrb({ cx, cy, radius, mode, energy, clock, assembleOnMount }
 
   return (
     <Group>
-      {/* Space background — stars + nebula */}
+      {/* Space background — no rotation, stays fixed */}
       <Fill>
         <Shader source={spaceBackgroundEffect} uniforms={uniforms} />
       </Fill>
-      {/* Orb plasma */}
-      <Fill>
-        <Shader source={orbEffect} uniforms={uniforms} />
-      </Fill>
-      <HolographicLogo cx={cx} cy={cy} radius={radius} mode={mode} clock={clock} energy={energy} assembleOnMount={assembleOnMount} />
+      {/* Orb + logo — rotates gently during aiSpeaking */}
+      <Group transform={groupTransform} origin={{ x: cx, y: cy }}>
+        <Fill>
+          <Shader source={orbEffect} uniforms={uniforms} />
+        </Fill>
+        <HolographicLogo cx={cx} cy={cy} radius={radius} mode={mode} clock={clock} energy={energy} assembleOnMount={assembleOnMount} />
+      </Group>
     </Group>
   );
 }
