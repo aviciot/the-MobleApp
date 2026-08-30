@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, useWindowDimensions, NativeModules } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, StyleSheet, Pressable, useWindowDimensions } from 'react-native';
 import { Canvas, useClock } from '@shopify/react-native-skia';
-import {
+import Animated, {
   useSharedValue,
+  useAnimatedStyle,
   withTiming,
   withSpring,
   withRepeat,
@@ -15,12 +16,15 @@ import { Durations, Springs } from '../theme/motion';
 import { GridCardSystem } from '../components/cards/GridCardSystem';
 import { TopWaveform } from '../components/ui/TopWaveform';
 import { SettingsSheet } from '../components/ui/SettingsSheet';
+import { AgentsSheet } from '../components/ui/AgentsSheet';
+import { ConversationSheet } from '../components/ui/ConversationSheet';
 import { useSessionStore } from '../store/sessionStore';
 import { useTranscriptStore } from '../store/transcriptStore';
-import { useAudioReactivity } from '../providers/AudioReactivityProvider';
 import { useTheme } from '../theme/useTheme';
 import { useVoicePipeline } from '../audio/useVoicePipeline';
 import { useGatewayStore } from '../store/gatewayStore';
+import { useSessionModeStore } from '../store/sessionModeStore';
+import { DEV_PROFILES } from '../config.dev';
 
 const NAV_ITEMS = [
   { label: 'Chat', icon: '💬' },
@@ -35,21 +39,52 @@ export function HomeScreen() {
   const clock = useClock();
   const theme = useTheme();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [agentsOpen, setAgentsOpen] = useState(false);
+  const [conversationOpen, setConversationOpen] = useState(false);
+  const { mode, toggle: toggleMode } = useSessionModeStore();
 
-  const { profiles, hydrated, hydrate } = useGatewayStore();
+  const { profiles, hydrated, hydrate, activeId, activeProfile } = useGatewayStore();
+  const activeAgent = activeProfile();
 
-  // Hydrate from SecureStore on mount, open settings if no profiles yet
+  // Hydrate from SecureStore on mount, seed dev profiles if none exist
   useEffect(() => {
     hydrate().then(() => {
-      if (useGatewayStore.getState().profiles.length === 0) {
-        setSettingsOpen(true);
+      const store = useGatewayStore.getState();
+      if (store.profiles.length === 0) {
+        DEV_PROFILES.forEach((p) => store.addProfile(p));
       }
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const sessionState = useSessionStore((s) => s.state);
   const liveText = useTranscriptStore((s) => s.liveText);
   const liveSpeaker = useTranscriptStore((s) => s.liveSpeaker);
+  const finalizedTurns = useTranscriptStore((s) => s.finalizedTurns);
+
+  // Keep last spoken text visible while AI is thinking/speaking
+  const lastSpokenRef = useRef('');
+  const [lastSpoken, setLastSpoken] = useState('');
+  useEffect(() => {
+    if (sessionState === 'userSpeaking' && liveText) {
+      lastSpokenRef.current = liveText;
+      setLastSpoken(liveText);
+    }
+    if (sessionState === 'idle') {
+      setLastSpoken('');
+      lastSpokenRef.current = '';
+    }
+  }, [sessionState, liveText]);
+
+  // Pulsing dot opacity for active states
+  const dotOpacity = useSharedValue(0);
+  useEffect(() => {
+    if (sessionState === 'userSpeaking' || sessionState === 'thinking' || sessionState === 'aiSpeaking') {
+      dotOpacity.value = withRepeat(withSequence(withTiming(1, { duration: 500 }), withTiming(0.2, { duration: 500 })), -1, false);
+    } else {
+      dotOpacity.value = withTiming(0, { duration: 200 });
+    }
+  }, [sessionState]);
 
   const cx = width / 2;
   const cy = height * 0.72;
@@ -59,6 +94,8 @@ export function HomeScreen() {
   const amplitude = useSharedValue(0.05);
 
   const { startRecording, stopRecording, cancel } = useVoicePipeline({ energy, amplitude });
+
+  const dotStyle = useAnimatedStyle(() => ({ opacity: dotOpacity.value }));
 
   const [waveformColor, setWaveformColor] = useState(theme.waveformColor);
 
@@ -141,35 +178,58 @@ export function HomeScreen() {
           <Text style={[styles.headerBtnText, { color: theme.textSecondary }]}>☰</Text>
         </Pressable>
         <View style={styles.headerRight}>
-          {/* DEV ONLY */}
+          {/* Mode toggle */}
           <Pressable
-            style={styles.devBtn}
-            onPress={() => NativeModules.DevSettings?.reload()}
-            onLongPress={() => NativeModules.DevSettings?.openDebugger?.()}
+            style={[styles.modeToggle, { backgroundColor: theme.cardBackground, borderColor: theme.cardBorder }]}
+            onPress={toggleMode}
           >
-            <Text style={styles.devBtnText}>⚡ DEV</Text>
+            <Text style={[styles.modeToggleText, { color: theme.accent }]}>
+              {mode === 'voice' ? '🎙 Voice' : '💬 Chat'}
+            </Text>
           </Pressable>
+          {/* Conversation history button */}
           <Pressable
             style={[styles.headerBtn, { backgroundColor: theme.buttonBg, borderColor: theme.buttonBorder }]}
-            onPress={() => setSettingsOpen(true)}
+            onPress={() => setConversationOpen(true)}
           >
-            <Text style={[styles.headerBtnText, { color: theme.textSecondary }]}>✦</Text>
+            <Text style={[styles.headerBtnText, { color: theme.textSecondary }]}>💬</Text>
           </Pressable>
         </View>
       </View>
 
-      {/* Status */}
-      <View style={[styles.statusArea, { top: insets.top + 52 }]}>
+      {/* Status — tap to open conversation */}
+      <Pressable style={[styles.statusArea, { top: insets.top + 52 }]} onPress={() => setConversationOpen(true)}>
         <TopWaveform amplitude={amplitude} color={waveformColor} visible={isSpeaking} />
-        <Text style={[styles.stateLabel, { color: theme.textPrimary }]}>
-          {stateLabel[sessionState] ?? "Hold mic to speak"}
-        </Text>
-        {liveText ? (
-          <Text style={[styles.liveText, { color: theme.textSecondary }]} numberOfLines={2}>
-            {liveText}
+
+        {/* State label row with pulsing dot */}
+        <View style={styles.stateLabelRow}>
+          <Animated.View style={[styles.stateDot, { backgroundColor: sessionState === 'userSpeaking' ? theme.orbStateColors.user : sessionState === 'aiSpeaking' ? theme.orbStateColors.ai : theme.accent }, dotStyle]} />
+          <Text style={[styles.stateLabel, { color: theme.textPrimary }]}>
+            {stateLabel[sessionState] ?? 'Hold orb to speak'}
+          </Text>
+        </View>
+
+        {/* Live STT text while speaking */}
+        {sessionState === 'userSpeaking' && liveText ? (
+          <Text style={[styles.liveText, { color: theme.orbStateColors.user }]} numberOfLines={2}>
+            "{liveText}"
           </Text>
         ) : null}
-      </View>
+
+        {/* Keep user's words visible while AI thinks / speaks */}
+        {(sessionState === 'thinking' || sessionState === 'aiSpeaking') && lastSpoken ? (
+          <Text style={[styles.liveText, { color: theme.textTertiary }]} numberOfLines={2}>
+            "{lastSpoken}"
+          </Text>
+        ) : null}
+
+        {/* Tap hint */}
+        {sessionState === 'idle' && finalizedTurns.length > 0 && (
+          <Text style={[styles.tapHint, { color: theme.textTertiary }]}>
+            tap to view conversation ({finalizedTurns.length})
+          </Text>
+        )}
+      </Pressable>
 
       {/* Cards */}
       <View style={[styles.cardArea, { top: insets.top + 140, bottom: height - cy + baseRadius * 0.55 }]}>
@@ -177,17 +237,44 @@ export function HomeScreen() {
       </View>
 
 
+      {/* Active agent chip */}
+      {activeAgent && (
+        <Pressable
+          style={[styles.agentChip, { backgroundColor: theme.cardBackground, borderColor: theme.cardBorder }]}
+          onPress={() => setAgentsOpen(true)}
+        >
+          <View style={[styles.agentDot, { backgroundColor: theme.accent }]} />
+          <Text style={[styles.agentChipText, { color: theme.textSecondary }]} numberOfLines={1}>
+            {activeAgent.name}
+          </Text>
+        </Pressable>
+      )}
+
       {/* Bottom nav */}
       <View style={[styles.bottomNav, { paddingBottom: insets.bottom + 8, backgroundColor: theme.navBackground, borderTopColor: theme.navBorder }]}>
-        {NAV_ITEMS.map((item, i) => (
-          <Pressable key={item.label} style={styles.navItem}>
-            <Text style={[styles.navIcon, { color: i === 0 ? theme.navIconActive : theme.navIconInactive }]}>{item.icon}</Text>
-            <Text style={[styles.navLabel, { color: i === 0 ? theme.navIconActive : theme.navIconInactive }]}>{item.label}</Text>
-          </Pressable>
-        ))}
+        {NAV_ITEMS.map((item, i) => {
+          const isAgents = item.label === 'Agents';
+          const isActive = i === 0;
+          return (
+            <Pressable
+              key={item.label}
+              style={styles.navItem}
+              onPress={isAgents ? () => setAgentsOpen(true) : undefined}
+            >
+              <Text style={[styles.navIcon, { color: isActive ? theme.navIconActive : theme.navIconInactive }]}>{item.icon}</Text>
+              <Text style={[styles.navLabel, { color: isActive ? theme.navIconActive : theme.navIconInactive }]}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       <SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <AgentsSheet visible={agentsOpen} onClose={() => setAgentsOpen(false)} />
+      <ConversationSheet
+        visible={conversationOpen}
+        onClose={() => setConversationOpen(false)}
+        mode={mode}
+      />
     </View>
   );
 }
@@ -208,22 +295,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  devBtn: {
-    height: 32,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,180,0,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,180,0,0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  devBtnText: {
-    color: '#FFB400',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
   headerBtn: {
     width: 40, height: 40,
     borderRadius: 20,
@@ -239,11 +310,21 @@ const styles = StyleSheet.create({
     zIndex: 30,
     paddingHorizontal: 24,
   },
+  stateLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  stateDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
   stateLabel: {
     fontSize: 22,
     fontWeight: '300',
     letterSpacing: 0.5,
-    marginTop: 8,
   },
   liveText: {
     fontSize: 14,
@@ -275,4 +356,34 @@ const styles = StyleSheet.create({
   },
   navIcon: { fontSize: 18 },
   navLabel: { fontSize: 11, letterSpacing: 0.3 },
+  modeToggle: {
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modeToggleText: { fontSize: 12, fontWeight: '600' },
+  tapHint: {
+    fontSize: 11,
+    marginTop: 6,
+    opacity: 0.5,
+    letterSpacing: 0.3,
+  },
+  agentChip: {
+    position: 'absolute',
+    bottom: 72,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    zIndex: 30,
+  },
+  agentDot: { width: 6, height: 6, borderRadius: 3 },
+  agentChipText: { fontSize: 12, fontWeight: '500' },
 });

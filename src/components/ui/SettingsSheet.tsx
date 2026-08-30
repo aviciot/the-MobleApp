@@ -29,7 +29,7 @@ interface SettingsSheetProps {
 
 type EditingProfile = Omit<GatewayProfile, 'id'> & { id?: string };
 
-const EMPTY_PROFILE: EditingProfile = { name: '', baseUrl: '', appSlug: '', token: '' };
+const EMPTY_PROFILE: EditingProfile = { name: '', baseUrl: '', appSlug: '', voiceSlug: '', token: '' };
 
 export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   const insets = useSafeAreaInsets();
@@ -71,15 +71,15 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
 
   async function saveEditing() {
     if (!editing) return;
-    const { name, baseUrl, appSlug, token } = editing;
+    const { name, baseUrl, appSlug, voiceSlug, token } = editing;
     if (!name.trim() || !baseUrl.trim() || !appSlug.trim()) {
-      Alert.alert('Missing fields', 'Name, URL and App Slug are required.');
+      Alert.alert('Missing fields', 'Name, URL and A2A Slug are required.');
       return;
     }
     if (editing.id) {
-      await updateProfile(editing.id, { name, baseUrl, appSlug, token });
+      await updateProfile(editing.id, { name, baseUrl, appSlug, voiceSlug, token });
     } else {
-      await addProfile({ name, baseUrl, appSlug, token });
+      await addProfile({ name, baseUrl, appSlug, voiceSlug: voiceSlug || appSlug, token });
     }
     setEditing(null);
   }
@@ -89,6 +89,27 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => deleteProfile(p.id) },
     ]);
+  }
+
+  async function testProfile(p: GatewayProfile) {
+    const url = `${p.baseUrl}/a2a/${p.appSlug}`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(p.token ? { Authorization: `Bearer ${p.token}` } : {}),
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'agent/authenticatedExtendedCard', params: {} }),
+      });
+      if (res.ok || res.status === 401) {
+        Alert.alert('Connection OK', `Reached ${url}\nStatus: ${res.status}`);
+      } else {
+        Alert.alert('Unexpected status', `${url}\nHTTP ${res.status}`);
+      }
+    } catch (e: any) {
+      Alert.alert('Connection failed', `Cannot reach ${url}\n${e?.message ?? e}`);
+    }
   }
 
   const inputStyle = [styles.input, { color: theme.textPrimary, borderColor: theme.cardBorder, backgroundColor: theme.cardBackground }];
@@ -152,6 +173,16 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                 autoCapitalize="none"
               />
 
+              <Text style={labelStyle}>Voice Slug (TTS/STT)</Text>
+              <TextInput
+                style={inputStyle}
+                value={editing.voiceSlug}
+                onChangeText={(v) => setEditing((e) => e && { ...e, voiceSlug: v })}
+                placeholder="ep-voice-1"
+                placeholderTextColor={theme.textTertiary}
+                autoCapitalize="none"
+              />
+
               <Text style={labelStyle}>Token (optional)</Text>
               <TextInput
                 style={inputStyle}
@@ -162,6 +193,14 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                 autoCapitalize="none"
                 secureTextEntry
               />
+
+              <Pressable
+                style={[styles.btn, styles.testBtn, { borderColor: theme.accent, marginTop: 16 }]}
+                onPress={() => editing && testProfile(editing as GatewayProfile)}
+                disabled={!editing?.baseUrl || !editing?.appSlug}
+              >
+                <Text style={[styles.btnText, { color: theme.accent }]}>⚡ Test Connection</Text>
+              </Pressable>
 
               <View style={styles.editActions}>
                 <Pressable
@@ -206,6 +245,9 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                       </View>
                     </View>
                     <View style={styles.profileActions}>
+                      <Pressable onPress={() => testProfile(p)} hitSlop={8}>
+                        <Text style={[styles.actionIcon, { color: theme.accent }]}>⚡</Text>
+                      </Pressable>
                       <Pressable onPress={() => startEdit(p)} hitSlop={8}>
                         <Text style={[styles.actionIcon, { color: theme.textSecondary }]}>✎</Text>
                       </Pressable>
@@ -337,7 +379,8 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     fontSize: 13,
   },
-  editActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  testBtn: { borderWidth: 1, alignItems: 'center', paddingVertical: 10 },
+  editActions: { flexDirection: 'row', gap: 10, marginTop: 10 },
   btn: {
     flex: 1, borderRadius: 8, borderWidth: 1,
     paddingVertical: 10, alignItems: 'center',

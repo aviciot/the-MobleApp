@@ -68,10 +68,23 @@ This is set in `package.json` `"start"` script.
 
 ---
 
+## Two builds on the phone at once
+
+| Build | Package name | App label | Purpose |
+|-------|-------------|-----------|---------|
+| Dev | `com.avicoiot.them` | theM | Development — needs PC + Metro running |
+| Preview | `com.avicoiot.them.preview` | theM (preview) | Standalone — share with friends, no PC needed |
+
+They coexist on the phone as separate apps — installing one does not overwrite the other.
+
 ## When you need a full EAS cloud rebuild
 
 Only needed when adding a new native package or changing `app.json` plugins. Regular code changes hot reload instantly.
 
 ```powershell
+# Dev build (for development on device)
 eas build --platform android --profile development
+
+# Preview build (standalone beta for sharing)
+eas build --platform android --profile preview
 ```

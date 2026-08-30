@@ -36,6 +36,9 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# Claude Code session files
+.claude/
+
 # generated native folders
 /ios
 /android

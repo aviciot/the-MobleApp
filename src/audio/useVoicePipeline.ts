@@ -1,7 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { useAudioRecorder, useAudioPlayer, RecordingPresets } from 'expo-audio';
+import { useAudioPlayer } from 'expo-audio';
 import type { SharedValue } from 'react-native-reanimated';
 import { withTiming } from 'react-native-reanimated';
+import { useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { VoiceController } from './VoiceController';
 import { useSessionStore } from '../store/sessionStore';
 import { useTranscriptStore } from '../store/transcriptStore';
@@ -13,9 +14,7 @@ interface UseVoicePipelineOptions {
 }
 
 export function useVoicePipeline({ energy, amplitude }: UseVoicePipelineOptions) {
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const player = useAudioPlayer(null);
-
   const controller = useRef<VoiceController | null>(null);
   const { setState } = useSessionStore();
   const { appendToken, setLiveSpeaker, finalizeTurn } = useTranscriptStore();
@@ -76,15 +75,25 @@ export function useVoicePipeline({ energy, amplitude }: UseVoicePipelineOptions)
     };
   }, []);
 
+  // Wire on-device speech recognition events to controller
+  useSpeechRecognitionEvent('result', (event) => {
+    const text = event.results?.[0]?.transcript ?? '';
+    const isFinal = event.isFinal ?? false;
+    controller.current?.onSpeechResult(text, isFinal);
+  });
+
+  useSpeechRecognitionEvent('error', (event) => {
+    controller.current?.onSpeechError(event.message ?? 'Unknown error');
+  });
+
   // Keep player ref in sync with controller
   useEffect(() => {
     controller.current?.setPlayer(player);
   }, [player]);
 
   const startRecording = useCallback(async () => {
-    controller.current?.abort();
-    await controller.current?.startRecording(recorder);
-  }, [recorder]);
+    await controller.current?.startRecording(null as any);
+  }, []);
 
   const stopRecording = useCallback(async () => {
     await controller.current?.stopRecording();

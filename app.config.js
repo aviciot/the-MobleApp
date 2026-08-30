@@ -1,0 +1,38 @@
+const IS_PREVIEW = process.env.APP_VARIANT === 'preview';
+
+module.exports = {
+  expo: {
+    name: IS_PREVIEW ? 'theM Preview' : 'theM',
+    slug: 'avi',
+    scheme: 'them',
+    version: '1.0.0',
+    orientation: 'portrait',
+    icon: './assets/icon.png',
+    userInterfaceStyle: 'dark',
+    backgroundColor: '#050510',
+    plugins: [
+      'expo-dev-client',
+      ['expo-audio', { microphonePermission: 'The-M needs your microphone to hear you speak.' }],
+      'expo-secure-store',
+    ],
+    developmentClient: { silentLaunch: true },
+    ios: {
+      supportsTablet: true,
+      bundleIdentifier: IS_PREVIEW ? 'com.avicoiot.them.preview' : 'com.avicoiot.them',
+    },
+    android: {
+      newArchEnabled: false,
+      package: IS_PREVIEW ? 'com.avicoiot.them.preview' : 'com.avicoiot.them',
+      adaptiveIcon: {
+        backgroundColor: '#050510',
+        foregroundImage: './assets/android-icon-foreground.png',
+        backgroundImage: './assets/android-icon-background.png',
+        monochromeImage: './assets/android-icon-monochrome.png',
+      },
+      predictiveBackGestureEnabled: false,
+    },
+    web: { favicon: './assets/favicon.png' },
+    extra: { eas: { projectId: '4e5ba723-3e78-4260-a424-83dfb515c0f1' } },
+    owner: 'aviciots-team',
+  },
+};

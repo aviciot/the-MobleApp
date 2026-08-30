@@ -12,6 +12,7 @@ import {
   withSequence,
 } from 'react-native-reanimated';
 import { orbEffect } from './theMOrbShader';
+import { spaceBackgroundEffect } from './spaceBackgroundShader';
 import { HolographicLogo } from './HolographicLogo';
 import { useTheme } from '../../theme/useTheme';
 import type { TheMOrbProps, OrbMode } from './types';
@@ -32,7 +33,7 @@ function useRGB(rgb: RGB) {
   return { r, g, b };
 }
 
-export function TheMOrb({ cx, cy, radius, mode, energy, clock }: TheMOrbProps) {
+export function TheMOrb({ cx, cy, radius, mode, energy, clock, assembleOnMount }: TheMOrbProps) {
   const theme = useTheme();
 
   const plasmaSpeed   = useSharedValue(MODE_PARAMS.idle.plasma);
@@ -113,14 +114,19 @@ export function TheMOrb({ cx, cy, radius, mode, energy, clock }: TheMOrbProps) {
     uBandCol:       [band.r.value, band.g.value, band.b.value] as [number, number, number],
   }));
 
-  if (!orbEffect) return null;
+  if (!orbEffect || !spaceBackgroundEffect) return null;
 
   return (
     <Group>
+      {/* Space background — stars + nebula */}
+      <Fill>
+        <Shader source={spaceBackgroundEffect} uniforms={uniforms} />
+      </Fill>
+      {/* Orb plasma */}
       <Fill>
         <Shader source={orbEffect} uniforms={uniforms} />
       </Fill>
-      <HolographicLogo cx={cx} cy={cy} radius={radius} mode={mode} clock={clock} energy={energy} />
+      <HolographicLogo cx={cx} cy={cy} radius={radius} mode={mode} clock={clock} energy={energy} assembleOnMount={assembleOnMount} />
     </Group>
   );
 }

@@ -1,20 +1,23 @@
 import { useGatewayStore } from './store/gatewayStore';
 
-// Fallback used only before any profile is saved (first install)
-const FALLBACK = {
-  baseUrl: 'http://10.55.125.43:8088',
-  appSlug: 'debator-voice',
-  token: 'W0ZFq1EJbIp0w5hRWy-eBpWpzc-I2mN9nA-AhC04D3w',
+export const DEFAULT_GATEWAY = {
+  id: 'default',
+  name: 'the-M',
+  baseUrl: 'http://localhost:8088',
+  appSlug: 'ep-a2a-1',
+  voiceSlug: 'ep-voice-1',
+  token: 'XMItLlhMUn1wGKJ88UudZ7irAcHEqONhZ4VFDDi0O1k',
 };
 
 export function getGatewayConfig() {
   const active = useGatewayStore.getState().activeProfile();
-  return active ?? FALLBACK;
+  if (!active) return DEFAULT_GATEWAY;
+  // Fill missing fields from DEFAULT_GATEWAY so old saved profiles still work
+  return { ...DEFAULT_GATEWAY, ...active };
 }
 
-// Convenience alias — same shape as before so GatewayClient / A2AClient work unchanged
-export const GATEWAY = new Proxy({} as typeof FALLBACK, {
+export const GATEWAY = new Proxy({} as typeof DEFAULT_GATEWAY, {
   get(_t, key: string) {
-    return getGatewayConfig()[key as keyof typeof FALLBACK];
+    return getGatewayConfig()[key as keyof typeof DEFAULT_GATEWAY];
   },
 });

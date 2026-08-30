@@ -5,7 +5,8 @@ export interface GatewayProfile {
   id: string;
   name: string;
   baseUrl: string;
-  appSlug: string;
+  appSlug: string;   // A2A endpoint slug  → /a2a/{appSlug}
+  voiceSlug: string; // Voice endpoint slug → /apps/{voiceSlug}/voice/tts
   token: string;
 }
 
@@ -23,6 +24,7 @@ interface GatewayStore {
 
 const STORAGE_KEY = 'gateway_profiles_v1';
 const ACTIVE_KEY = 'gateway_active_id_v1';
+let idCounter = 0;
 
 function persist(profiles: GatewayProfile[], activeId: string | null) {
   SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(profiles));
@@ -43,7 +45,14 @@ export const useGatewayStore = create<GatewayStore>((set, get) => ({
     try {
       const raw = await SecureStore.getItemAsync(STORAGE_KEY);
       const activeId = await SecureStore.getItemAsync(ACTIVE_KEY);
-      const profiles: GatewayProfile[] = raw ? JSON.parse(raw) : [];
+      const all: GatewayProfile[] = raw ? JSON.parse(raw) : [];
+      // Deduplicate by id — keeps first occurrence
+      const seen = new Set<string>();
+      let changed = false;
+      const profiles = all
+        .filter((p) => { if (seen.has(p.id)) { changed = true; return false; } seen.add(p.id); return true; })
+        .map((p) => { if (!p.voiceSlug) { changed = true; return { ...p, voiceSlug: p.appSlug }; } return p; });
+      if (changed) persist(profiles, activeId || null);
       set({ profiles, activeId: activeId || null, hydrated: true });
     } catch {
       set({ hydrated: true });
@@ -51,8 +60,10 @@ export const useGatewayStore = create<GatewayStore>((set, get) => ({
   },
 
   addProfile: async (p) => {
-    const profile: GatewayProfile = { ...p, id: `gw_${Date.now()}` };
     const { profiles, activeId } = get();
+    // Prevent duplicate names from double-mount in dev strict mode
+    if (profiles.some((x) => x.name === p.name)) return;
+    const profile: GatewayProfile = { ...p, id: `gw_${Date.now()}_${++idCounter}` };
     const newProfiles = [...profiles, profile];
     const newActive = activeId ?? profile.id;
     set({ profiles: newProfiles, activeId: newActive });

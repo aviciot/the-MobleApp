@@ -1,12 +1,16 @@
 import {
-  requestRecordingPermissionsAsync,
   setAudioModeAsync,
   type AudioRecorder,
   type AudioPlayer,
 } from 'expo-audio';
-import { transcribeAudio, tts, GatewayError } from './GatewayClient';
-import { sendToOrchestrator, resetConversation, A2AError, type A2AArtifact } from '../ai/A2AClient';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
+import { tts, GatewayError } from './GatewayClient';
+import { sendToOrchestrator, resetConversation, A2AError, type A2AArtifact, type A2AFile } from '../ai/A2AClient';
 import type { CardModel } from '../store/cardStore';
+import { useSessionModeStore } from '../store/sessionModeStore';
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing' | 'thinking' | 'speaking' | 'error';
 
@@ -21,28 +25,31 @@ export interface VoiceControllerCallbacks {
 }
 
 export class VoiceController {
-  private recorder: AudioRecorder | null = null;
   private player: AudioPlayer | null = null;
   private abortController: AbortController | null = null;
   private aiPulseInterval: ReturnType<typeof setInterval> | null = null;
   private playbackSubscription: { remove: () => void } | null = null;
   private cb: VoiceControllerCallbacks;
+  private recognizedText: string = '';
 
   constructor(callbacks: VoiceControllerCallbacks) {
     this.cb = callbacks;
   }
 
-  async startRecording(recorder: AudioRecorder) {
+  async startRecording(_recorder: AudioRecorder) {
     try {
-      const { granted } = await requestRecordingPermissionsAsync();
+      const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!granted) {
         this.cb.onError('Microphone permission denied');
         return;
       }
+      this.recognizedText = '';
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      this.recorder = recorder;
-      await recorder.prepareToRecordAsync();
-      recorder.record();
+      ExpoSpeechRecognitionModule.start({
+        lang: 'he-IL',
+        interimResults: true,
+        continuous: false,
+      });
       this.cb.onStateChange('recording');
     } catch {
       this.cb.onError('Failed to start recording');
@@ -50,45 +57,65 @@ export class VoiceController {
   }
 
   async stopRecording() {
-    if (!this.recorder) return;
     this.cb.onUserLevel(0);
     try {
-      await this.recorder.stop();
-      const uri = this.recorder.uri;
-      this.recorder = null;
-      if (!uri) { this.cb.onError('No audio recorded'); return; }
-      await this.runPipeline(uri);
+      ExpoSpeechRecognitionModule.stop();
+      // Pipeline is triggered by onResult event — see onSpeechResult()
     } catch {
-      this.recorder = null;
       this.cb.onError('Recording failed');
     }
   }
 
-  private async runPipeline(audioUri: string) {
+  // Called from the screen via useSpeechRecognitionEvent hook
+  onSpeechResult(text: string, isFinal: boolean) {
+    this.recognizedText = text;
+    if (text) this.cb.onTranscript(text);
+    if (isFinal) {
+      console.log(`\n━━━ [STT] FINAL: "${text}" ━━━`);
+      if (text) this.runPipeline(text);
+      else console.log('  ↳ empty — skipping pipeline');
+    }
+  }
+
+  onSpeechError(message: string) {
+    console.log('[STT] error:', message);
+    // Benign errors — user stopped speaking, recognizer finished, or no input
+    const benign = ['no-speech', 'no-match', 'speech timeout', 'recognizer busy', '7', '8', '5'];
+    const isBenign = benign.some((code) => message.toLowerCase().includes(code));
+    if (!isBenign) {
+      this.cb.onError(`Speech recognition error: ${message}`);
+    }
+    this.cb.onStateChange('idle');
+  }
+
+  private async runPipeline(userText: string) {
     this.abortController = new AbortController();
     const { signal } = this.abortController;
 
     try {
-      this.cb.onStateChange('transcribing');
-      const userText = await transcribeAudio(audioUri, signal);
-      if (signal.aborted) return;
-      this.cb.onTranscript(userText);
-
       this.cb.onStateChange('thinking');
-      const { replyText, artifacts } = await sendToOrchestrator(userText, signal);
+      const { replyText, artifacts, files } = await sendToOrchestrator(userText, signal);
       if (signal.aborted) return;
 
       const cards = artifactsToCards(artifacts);
       if (cards.length > 0) this.cb.onCards(cards);
 
+      // Show file cards for any file artifacts
+      const fileCards = filesToCards(files);
+      if (fileCards.length > 0) this.cb.onCards(fileCards);
+
       if (!replyText) { this.cb.onStateChange('idle'); return; }
 
       this.cb.onReply(replyText);
 
-      const mp3Uri = await tts(replyText, signal);
-      if (signal.aborted) return;
-
-      await this.playAudio(mp3Uri);
+      const { mode } = useSessionModeStore.getState();
+      if (mode === 'voice') {
+        const mp3Uri = await tts(replyText, signal);
+        if (signal.aborted) return;
+        await this.playAudio(mp3Uri);
+      } else {
+        this.cb.onStateChange('idle');
+      }
     } catch (e) {
       if ((e as Error).name === 'AbortError') return;
       if (e instanceof GatewayError) {
@@ -108,23 +135,28 @@ export class VoiceController {
   }
 
   private async playAudio(uri: string) {
-    if (!this.player) { this.cb.onError('Player not ready'); return; }
+    if (!this.player) { console.log('[AUDIO] ✗ no player'); this.cb.onError('Player not ready'); return; }
     this.cb.onStateChange('speaking');
     this.startAiPulse();
     try {
+      console.log(`\n━━━ [AUDIO] PLAY ━━━\n  uri: ${uri}`);
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       this.player.replace({ uri });
       this.player.play();
+      console.log('  ↳ play() called');
       this.playbackSubscription?.remove();
       this.playbackSubscription = this.player.addListener('playbackStatusUpdate', (status: any) => {
+        console.log('[AUDIO] status:', JSON.stringify(status));
         if (status.didJustFinish) {
+          console.log('━━━ [AUDIO] DONE ━━━\n');
           this.stopAiPulse();
           this.cb.onStateChange('idle');
           this.playbackSubscription?.remove();
           this.playbackSubscription = null;
         }
       });
-    } catch {
+    } catch (e: any) {
+      console.log('[AUDIO] ✗ error:', e?.message ?? e);
       this.stopAiPulse();
       this.cb.onError('Playback failed');
       this.cb.onStateChange('idle');
@@ -150,9 +182,10 @@ export class VoiceController {
     this.stopAiPulse();
     this.playbackSubscription?.remove();
     this.playbackSubscription = null;
-    if (this.player) { this.player.pause(); }
+    try { this.player?.pause(); } catch {}
     this.cb.onUserLevel(0);
     this.cb.onAiLevel(0);
+    try { ExpoSpeechRecognitionModule.stop(); } catch {}
   }
 
   resetConversation() {
@@ -161,7 +194,6 @@ export class VoiceController {
 
   destroy() {
     this.abort();
-    if (this.recorder) { this.recorder.stop().catch(() => {}); this.recorder = null; }
   }
 }
 
@@ -176,6 +208,18 @@ function artifactsToCards(artifacts: A2AArtifact[]): CardModel[] {
     }
   }
   return cards;
+}
+
+function filesToCards(files: A2AFile[]): CardModel[] {
+  return files.map((file) => ({
+    id: `file-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    type: 'file' as const,
+    createdAt: Date.now(),
+    fileName: file.name,
+    sizeBytes: 0,
+    mimeType: file.mimeType,
+    remoteUri: file.uri,
+  }));
 }
 
 function dataToCard(data: Record<string, unknown>): CardModel | null {

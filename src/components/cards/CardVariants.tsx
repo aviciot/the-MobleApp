@@ -1,8 +1,20 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import { View, Text, StyleSheet, Image, Pressable, Linking } from 'react-native';
 import { Colors } from '../../theme/colors';
 import { ContentCard } from './ContentCard';
 import type { CardModel } from '../../store/cardStore';
+
+function getMimeIcon(mimeType: string): string {
+  if (mimeType.startsWith('image/')) return '🖼';
+  if (mimeType.startsWith('video/')) return '🎬';
+  if (mimeType.startsWith('audio/')) return '🎵';
+  if (mimeType.includes('pdf')) return '📄';
+  if (mimeType.includes('zip') || mimeType.includes('compressed')) return '🗜';
+  if (mimeType.includes('json') || mimeType.includes('xml')) return '📋';
+  if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) return '📊';
+  if (mimeType.includes('word') || mimeType.includes('document')) return '📝';
+  return '📎';
+}
 
 interface CardProps {
   card: CardModel;
@@ -31,18 +43,31 @@ export function ImageCard({ card, x, y, onPress, onDismiss, entranceDelay }: Car
 
 export function FileCard({ card, x, y, onPress, onDismiss, entranceDelay }: CardProps) {
   const sizeLabel = card.sizeBytes ? `${(card.sizeBytes / 1024 / 1024).toFixed(1)} MB` : '';
+  const mimeIcon = getMimeIcon(card.mimeType ?? '');
+
+  function handleOpen() {
+    if (card.remoteUri) {
+      Linking.openURL(card.remoteUri).catch(() => {});
+    }
+  }
+
   return (
     <ContentCard id={card.id} x={x} y={y} accentColor={Colors.accent} onPress={onPress} onDismiss={onDismiss} entranceDelay={entranceDelay}>
       <Text style={styles.typeLabel}>FILE</Text>
       <View style={styles.fileRow}>
-        <View style={[styles.fileIcon, { backgroundColor: Colors.accent + '33' }]}>
-          <Text style={styles.fileExt}>{(card.mimeType ?? 'file').split('/').pop()?.slice(0, 3).toUpperCase()}</Text>
-        </View>
+        <Text style={styles.mimeIcon}>{mimeIcon}</Text>
         <View style={styles.fileMeta}>
           <Text style={styles.fileNameBold} numberOfLines={1}>{card.fileName ?? 'document'}</Text>
-          <Text style={styles.fileSize}>{sizeLabel}</Text>
+          <Text style={styles.fileSize}>{card.mimeType ?? ''}{sizeLabel ? `  ${sizeLabel}` : ''}</Text>
         </View>
       </View>
+      {card.remoteUri ? (
+        <Pressable style={styles.openBtn} onPress={handleOpen}>
+          <Text style={styles.openBtnText}>Open ↗</Text>
+        </Pressable>
+      ) : (
+        <Text style={styles.noLink}>No download link</Text>
+      )}
     </ContentCard>
   );
 }
@@ -118,18 +143,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    marginBottom: 10,
   },
-  fileIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fileExt: {
-    color: Colors.accent,
-    fontSize: 9,
-    fontWeight: '700',
+  mimeIcon: {
+    fontSize: 28,
   },
   fileMeta: {
     flex: 1,
@@ -143,6 +160,24 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 11,
     marginTop: 2,
+  },
+  openBtn: {
+    marginTop: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: Colors.accent + '22',
+    alignSelf: 'flex-start',
+  },
+  openBtnText: {
+    color: Colors.accent,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  noLink: {
+    color: Colors.textTertiary,
+    fontSize: 11,
+    marginTop: 4,
   },
   cardTitle: {
     color: Colors.textPrimary,

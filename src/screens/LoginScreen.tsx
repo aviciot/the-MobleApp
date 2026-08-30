@@ -5,9 +5,7 @@ import { useSharedValue, withTiming, withSpring } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../theme/colors';
 import { Durations, Springs } from '../theme/motion';
-import { GlowOrb } from '../components/orb/GlowOrb';
-import { OrbParticles } from '../components/orb/OrbParticles';
-import { ParticleField } from '../components/orb/ParticleField';
+import { TheMOrb } from '../components/orb/TheMOrb';
 import { GlassButton } from '../components/ui/GlassButton';
 
 interface LoginScreenProps {
@@ -24,24 +22,15 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   const cy = height * 0.38;
   const baseRadius = Math.min(width, height) * 0.17;
 
-  const amplitude = useSharedValue(0.04);
   const energy = useSharedValue(0.12);
-  const fieldIntensity = useSharedValue(0.2);
 
-  // Entrance
   useEffect(() => {
-    fieldIntensity.value = withTiming(0.25, { duration: Durations.slow });
-    amplitude.value = withTiming(0.06, { duration: Durations.ambient });
+    energy.value = withTiming(0.2, { duration: Durations.slow });
   }, []);
 
   const handleLogin = async () => {
     setLoading(true);
-    // Wake animation
-    amplitude.value = withSpring(0.3, Springs.soft);
     energy.value = withSpring(0.7, Springs.soft);
-    fieldIntensity.value = withTiming(0.5, { duration: 600 });
-
-    // Simulate auth delay then navigate
     await new Promise((r) => setTimeout(r, 900));
     setLoading(false);
     onLogin();
@@ -54,33 +43,14 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
   return (
     <View style={styles.container}>
       <Canvas style={StyleSheet.absoluteFill}>
-        <ParticleField
-          width={width}
-          height={height}
-          count={45}
-          intensity={fieldIntensity}
-          clock={clock}
-        />
-        <GlowOrb
+        <TheMOrb
           cx={cx}
           cy={cy}
-          baseRadius={baseRadius}
-          amplitude={amplitude}
-          clock={clock}
-          primaryColor={Colors.orbIdle}
-          secondaryColor={Colors.orbIdleSecondary}
-        />
-        <OrbParticles
-          cx={cx}
-          cy={cy}
-          orbitRadius={baseRadius * 1.25}
-          count={12}
-          amplitude={amplitude}
+          radius={baseRadius}
+          mode="idle"
           energy={energy}
           clock={clock}
-          color={Colors.orbIdle}
         />
-
       </Canvas>
 
       {/* Top brand */}

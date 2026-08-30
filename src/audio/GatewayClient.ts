@@ -8,7 +8,8 @@ function headers(): Record<string, string> {
 }
 
 function url(path: string) {
-  return `${GATEWAY.baseUrl}/apps/${GATEWAY.appSlug}${path}`;
+  const slug = GATEWAY.voiceSlug || 'ep-voice-1';
+  return `${GATEWAY.baseUrl}/apps/${slug}${path}`;
 }
 
 // POST audio file → returns transcribed text
@@ -61,15 +62,24 @@ export async function synthesizeSpeech(text: string, signal?: AbortSignal): Prom
 
 // POST text → fetch binary → write to temp file → return URI
 export async function tts(text: string, signal?: AbortSignal): Promise<string> {
-  const res = await fetch(url('/voice/tts'), {
+  const t0 = Date.now();
+  const endpoint = url('/voice/tts');
+  console.log(`\n━━━ [TTS] REQUEST ━━━`);
+  console.log(`  url:  ${endpoint}`);
+  console.log(`  text: "${text.slice(0, 60)}${text.length > 60 ? '…' : ''}"`);
+
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: { ...headers(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
     signal,
   });
 
+  console.log(`  ↳ status: ${res.status}  (${Date.now() - t0}ms)`);
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    console.log(`  ✗ error: ${JSON.stringify(body)}`);
     throw new GatewayError(res.status, body.detail ?? 'TTS failed');
   }
 
@@ -79,6 +89,8 @@ export async function tts(text: string, signal?: AbortSignal): Promise<string> {
   await FileSystem.writeAsStringAsync(destUri, base64, {
     encoding: FileSystem.EncodingType.Base64,
   });
+  console.log(`  ↳ audio saved: ${destUri}  (${Date.now() - t0}ms total)`);
+  console.log(`━━━ [TTS] DONE ━━━\n`);
   return destUri;
 }
 

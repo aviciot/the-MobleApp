@@ -10,9 +10,7 @@ import {
 } from 'react-native-reanimated';
 import Animated from 'react-native-reanimated';
 import { Colors } from '../theme/colors';
-import { GlowOrb } from '../components/orb/GlowOrb';
-import { OrbParticles } from '../components/orb/OrbParticles';
-import { ParticleField } from '../components/orb/ParticleField';
+import { TheMOrb } from '../components/orb/TheMOrb';
 
 interface SplashScreenProps {
   onFinish: () => void;
@@ -26,20 +24,16 @@ export function SplashScreen({ onFinish }: SplashScreenProps) {
   const cy = height * 0.42;
   const baseRadius = Math.min(width, height) * 0.18;
 
-  const fieldIntensity = useSharedValue(0);
   const energy = useSharedValue(0);
-  const amplitude = useSharedValue(0.05);
   const wordmarkOpacity = useSharedValue(0);
   const wordmarkY = useSharedValue(20);
 
   useEffect(() => {
-    fieldIntensity.value = withDelay(900, withTiming(0.4, { duration: 700 }));
-    energy.value = withDelay(700, withSpring(0.6));
-    amplitude.value = withDelay(400, withTiming(0.15, { duration: 800 }));
-    wordmarkOpacity.value = withDelay(1200, withTiming(1, { duration: 600 }));
-    wordmarkY.value = withDelay(1200, withTiming(0, { duration: 600 }));
+    energy.value = withDelay(400, withSpring(0.6));
+    wordmarkOpacity.value = withDelay(1800, withTiming(1, { duration: 700 }));
+    wordmarkY.value = withDelay(1800, withTiming(0, { duration: 700 }));
 
-    const timer = setTimeout(onFinish, 2800);
+    const timer = setTimeout(onFinish, 3600);
     return () => clearTimeout(timer);
   }, []);
 
@@ -51,38 +45,24 @@ export function SplashScreen({ onFinish }: SplashScreenProps) {
   return (
     <View style={styles.container}>
       <Canvas style={StyleSheet.absoluteFill}>
-        <ParticleField
-          width={width}
-          height={height}
-          count={50}
-          intensity={fieldIntensity}
-          clock={clock}
-        />
-        <GlowOrb
+        <TheMOrb
           cx={cx}
           cy={cy}
-          baseRadius={baseRadius}
-          amplitude={amplitude}
-          clock={clock}
-          primaryColor={Colors.orbThinking}
-          secondaryColor={Colors.orbThinkingSecondary}
-        />
-        <OrbParticles
-          cx={cx}
-          cy={cy}
-          orbitRadius={baseRadius * 1.3}
-          count={14}
-          amplitude={amplitude}
+          radius={baseRadius}
+          mode="idle"
           energy={energy}
           clock={clock}
-          color={Colors.orbThinking}
+          assembleOnMount
         />
-
       </Canvas>
 
       <Animated.View style={[styles.wordmark, wordmarkStyle]}>
         <Text style={styles.brandText}>THE·M</Text>
         <Text style={styles.tagline}>Intelligence. Spoken.</Text>
+        <View style={styles.attribution}>
+          <Text style={styles.attributionName}>Avi Cohen</Text>
+          <Text style={styles.attributionEmail}>avicoiot@gmail.com</Text>
+        </View>
       </Animated.View>
     </View>
   );
@@ -112,5 +92,24 @@ const styles = StyleSheet.create({
     letterSpacing: 4,
     marginTop: 8,
     fontWeight: '300',
+  },
+  attribution: {
+    marginTop: 28,
+    alignItems: 'center',
+    gap: 3,
+  },
+  attributionName: {
+    color: Colors.textPrimary,
+    fontSize: 12,
+    fontWeight: '400',
+    letterSpacing: 1.5,
+    opacity: 0.85,
+  },
+  attributionEmail: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '300',
+    letterSpacing: 0.5,
+    opacity: 0.75,
   },
 });

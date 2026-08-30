@@ -13,6 +13,7 @@ export interface CardModel {
   fileName?: string;
   sizeBytes?: number;
   mimeType?: string;
+  remoteUri?: string;
   // text
   markdown?: string;
   title?: string;

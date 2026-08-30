@@ -7,6 +7,7 @@ import {
   withSequence,
   withTiming,
   withDelay,
+  withSpring,
   cancelAnimation,
 } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
@@ -33,8 +34,21 @@ const SVG_W = 1407;
 const SVG_H = 1118;
 const OUTER_INDICES = [0, 1, 2, 3, 6, 7, 10, 11, 12, 13];
 const INNER_INDICES = [4, 5, 8, 9];
+const N = POLYGON_POINTS.length; // 14
 
-// Unique flicker timing per polygon
+// Deterministic scatter offsets — each polygon gets a fixed spread direction
+// so the assembly always looks the same and doesn't jump on re-renders
+const SCATTER = Array.from({ length: N }, (_, i) => {
+  const angle = (i / N) * Math.PI * 2 + (i % 3) * 0.9;
+  const dist  = 180 + (i * 137) % 220; // 180..400 px spread
+  return {
+    tx: Math.cos(angle) * dist,
+    ty: Math.sin(angle) * dist,
+    rot: ((i * 73) % 120) - 60,         // -60..+60 deg
+    delay: i * 55 + (i % 4) * 30,       // staggered, outermost last-ish
+  };
+});
+
 const FLICKER_TIMING = [...OUTER_INDICES, ...INNER_INDICES].map((_, i) => ({
   on1:  80  + (i * 173) % 250,
   off1: 300 + (i * 251) % 600,
@@ -56,11 +70,13 @@ interface HolographicLogoProps {
   mode: OrbMode;
   clock: SharedValue<number>;
   energy: SharedValue<number>;
+  /** Pass true on first mount to trigger the assemble-from-scatter intro */
+  assembleOnMount?: boolean;
 }
 
-export function HolographicLogo({ cx, cy, radius, mode, clock, energy }: HolographicLogoProps) {
-  const size = radius * 1.28;
-  const scale = size / Math.max(SVG_W, SVG_H);
+export function HolographicLogo({ cx, cy, radius, mode, clock, energy, assembleOnMount = true }: HolographicLogoProps) {
+  const size    = radius * 1.28;
+  const scale   = size / Math.max(SVG_W, SVG_H);
   const offsetX = cx - (SVG_W * scale) / 2;
   const offsetY = cy - (SVG_H * scale) / 2;
 
@@ -79,7 +95,55 @@ export function HolographicLogo({ cx, cy, radius, mode, clock, energy }: Hologra
     });
   }, [offsetX, offsetY, scale]);
 
-  // 14 fixed shared values — never changes count so hooks rule is satisfied
+  // ── Assemble animation — 14 × (tx, ty, rot, op) = 56 fixed shared values ──
+  const tx0  = useSharedValue(assembleOnMount ? SCATTER[0].tx  : 0);
+  const ty0  = useSharedValue(assembleOnMount ? SCATTER[0].ty  : 0);
+  const tr0  = useSharedValue(assembleOnMount ? SCATTER[0].rot : 0);
+  const tx1  = useSharedValue(assembleOnMount ? SCATTER[1].tx  : 0);
+  const ty1  = useSharedValue(assembleOnMount ? SCATTER[1].ty  : 0);
+  const tr1  = useSharedValue(assembleOnMount ? SCATTER[1].rot : 0);
+  const tx2  = useSharedValue(assembleOnMount ? SCATTER[2].tx  : 0);
+  const ty2  = useSharedValue(assembleOnMount ? SCATTER[2].ty  : 0);
+  const tr2  = useSharedValue(assembleOnMount ? SCATTER[2].rot : 0);
+  const tx3  = useSharedValue(assembleOnMount ? SCATTER[3].tx  : 0);
+  const ty3  = useSharedValue(assembleOnMount ? SCATTER[3].ty  : 0);
+  const tr3  = useSharedValue(assembleOnMount ? SCATTER[3].rot : 0);
+  const tx4  = useSharedValue(assembleOnMount ? SCATTER[4].tx  : 0);
+  const ty4  = useSharedValue(assembleOnMount ? SCATTER[4].ty  : 0);
+  const tr4  = useSharedValue(assembleOnMount ? SCATTER[4].rot : 0);
+  const tx5  = useSharedValue(assembleOnMount ? SCATTER[5].tx  : 0);
+  const ty5  = useSharedValue(assembleOnMount ? SCATTER[5].ty  : 0);
+  const tr5  = useSharedValue(assembleOnMount ? SCATTER[5].rot : 0);
+  const tx6  = useSharedValue(assembleOnMount ? SCATTER[6].tx  : 0);
+  const ty6  = useSharedValue(assembleOnMount ? SCATTER[6].ty  : 0);
+  const tr6  = useSharedValue(assembleOnMount ? SCATTER[6].rot : 0);
+  const tx7  = useSharedValue(assembleOnMount ? SCATTER[7].tx  : 0);
+  const ty7  = useSharedValue(assembleOnMount ? SCATTER[7].ty  : 0);
+  const tr7  = useSharedValue(assembleOnMount ? SCATTER[7].rot : 0);
+  const tx8  = useSharedValue(assembleOnMount ? SCATTER[8].tx  : 0);
+  const ty8  = useSharedValue(assembleOnMount ? SCATTER[8].ty  : 0);
+  const tr8  = useSharedValue(assembleOnMount ? SCATTER[8].rot : 0);
+  const tx9  = useSharedValue(assembleOnMount ? SCATTER[9].tx  : 0);
+  const ty9  = useSharedValue(assembleOnMount ? SCATTER[9].ty  : 0);
+  const tr9  = useSharedValue(assembleOnMount ? SCATTER[9].rot : 0);
+  const tx10 = useSharedValue(assembleOnMount ? SCATTER[10].tx : 0);
+  const ty10 = useSharedValue(assembleOnMount ? SCATTER[10].ty : 0);
+  const tr10 = useSharedValue(assembleOnMount ? SCATTER[10].rot : 0);
+  const tx11 = useSharedValue(assembleOnMount ? SCATTER[11].tx : 0);
+  const ty11 = useSharedValue(assembleOnMount ? SCATTER[11].ty : 0);
+  const tr11 = useSharedValue(assembleOnMount ? SCATTER[11].rot : 0);
+  const tx12 = useSharedValue(assembleOnMount ? SCATTER[12].tx : 0);
+  const ty12 = useSharedValue(assembleOnMount ? SCATTER[12].ty : 0);
+  const tr12 = useSharedValue(assembleOnMount ? SCATTER[12].rot : 0);
+  const tx13 = useSharedValue(assembleOnMount ? SCATTER[13].tx : 0);
+  const ty13 = useSharedValue(assembleOnMount ? SCATTER[13].ty : 0);
+  const tr13 = useSharedValue(assembleOnMount ? SCATTER[13].rot : 0);
+
+  const txArr = [tx0,tx1,tx2,tx3,tx4,tx5,tx6,tx7,tx8,tx9,tx10,tx11,tx12,tx13];
+  const tyArr = [ty0,ty1,ty2,ty3,ty4,ty5,ty6,ty7,ty8,ty9,ty10,ty11,ty12,ty13];
+  const trArr = [tr0,tr1,tr2,tr3,tr4,tr5,tr6,tr7,tr8,tr9,tr10,tr11,tr12,tr13];
+
+  // ── Flicker animation — 14 fixed opacity shared values ──
   const f0  = useSharedValue(1); const f1  = useSharedValue(1);
   const f2  = useSharedValue(1); const f3  = useSharedValue(1);
   const f4  = useSharedValue(1); const f5  = useSharedValue(1);
@@ -89,6 +153,24 @@ export function HolographicLogo({ cx, cy, radius, mode, clock, energy }: Hologra
   const f12 = useSharedValue(1); const f13 = useSharedValue(1);
   const flick = [f0,f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13];
 
+  // ── Assemble on mount ──
+  useEffect(() => {
+    if (!assembleOnMount) return;
+
+    const SPRING = { damping: 14, stiffness: 90, mass: 0.8 };
+
+    txArr.forEach((sv, i) => {
+      sv.value = withDelay(SCATTER[i].delay, withSpring(0, SPRING));
+    });
+    tyArr.forEach((sv, i) => {
+      sv.value = withDelay(SCATTER[i].delay, withSpring(0, SPRING));
+    });
+    trArr.forEach((sv, i) => {
+      sv.value = withDelay(SCATTER[i].delay, withSpring(0, { damping: 16, stiffness: 80, mass: 0.9 }));
+    });
+  }, []);
+
+  // ── Flicker on press ──
   const isActive = mode === 'userSpeaking' || mode === 'listening';
 
   useEffect(() => {
@@ -117,7 +199,36 @@ export function HolographicLogo({ cx, cy, radius, mode, clock, energy }: Hologra
     return () => flick.forEach((sv) => cancelAnimation(sv));
   }, [isActive]);
 
-  // Derived opacity per polygon
+  // ── Derived per-polygon transform + opacity ──
+  // Outer polygon order: indices [0,1,2,3,6,7,10,11,12,13] → flick slots 0..9
+  // Inner polygon order: indices [4,5,8,9]                 → flick slots 10..13
+
+  const makeTransform = (txSV: SharedValue<number>, tySV: SharedValue<number>, trSV: SharedValue<number>) =>
+    useDerivedValue(() => [
+      { translateX: txSV.value },
+      { translateY: tySV.value },
+      { rotate: (trSV.value * Math.PI) / 180 },
+    ]);
+
+  // Outer transforms (10 polygons)
+  const xf0  = makeTransform(tx0,  ty0,  tr0);
+  const xf1  = makeTransform(tx1,  ty1,  tr1);
+  const xf2  = makeTransform(tx2,  ty2,  tr2);
+  const xf3  = makeTransform(tx3,  ty3,  tr3);
+  const xf6  = makeTransform(tx6,  ty6,  tr6);
+  const xf7  = makeTransform(tx7,  ty7,  tr7);
+  const xf10 = makeTransform(tx10, ty10, tr10);
+  const xf11 = makeTransform(tx11, ty11, tr11);
+  const xf12 = makeTransform(tx12, ty12, tr12);
+  const xf13 = makeTransform(tx13, ty13, tr13);
+
+  // Inner transforms (4 polygons)
+  const xf4 = makeTransform(tx4, ty4, tr4);
+  const xf5 = makeTransform(tx5, ty5, tr5);
+  const xf8 = makeTransform(tx8, ty8, tr8);
+  const xf9 = makeTransform(tx9, ty9, tr9);
+
+  // Flicker opacities
   const o0  = useDerivedValue(() => f0.value);
   const o1  = useDerivedValue(() => f1.value);
   const o2  = useDerivedValue(() => f2.value);
@@ -133,37 +244,54 @@ export function HolographicLogo({ cx, cy, radius, mode, clock, energy }: Hologra
   const o12 = useDerivedValue(() => f12.value);
   const o13 = useDerivedValue(() => f13.value);
 
-  const outerOp = [o0, o1, o2, o3, o6, o7, o10, o11, o12, o13];
-  const innerOp = [o4, o5, o8, o9];
+  const outerData = [
+    { idx: 0,  xf: xf0,  op: o0  },
+    { idx: 1,  xf: xf1,  op: o1  },
+    { idx: 2,  xf: xf2,  op: o2  },
+    { idx: 3,  xf: xf3,  op: o3  },
+    { idx: 6,  xf: xf6,  op: o6  },
+    { idx: 7,  xf: xf7,  op: o7  },
+    { idx: 10, xf: xf10, op: o10 },
+    { idx: 11, xf: xf11, op: o11 },
+    { idx: 12, xf: xf12, op: o12 },
+    { idx: 13, xf: xf13, op: o13 },
+  ];
+
+  const innerData = [
+    { idx: 4, xf: xf4, op: o4 },
+    { idx: 5, xf: xf5, op: o5 },
+    { idx: 8, xf: xf8, op: o8 },
+    { idx: 9, xf: xf9, op: o9 },
+  ];
 
   return (
     <Group>
-      {/* Outer polygons — clean thin white lines, flicker on press */}
-      {OUTER_INDICES.map((idx, k) => (
-        <Path
-          key={`outer-${idx}`}
-          path={paths[idx]}
-          style="stroke"
-          strokeWidth={scale * 3.5}
-          color="#FFFFFF"
-          strokeCap="round"
-          strokeJoin="round"
-          opacity={outerOp[k]}
-        />
+      {outerData.map(({ idx, xf, op }) => (
+        <Group key={`outer-${idx}`} transform={xf}>
+          <Path
+            path={paths[idx]}
+            style="stroke"
+            strokeWidth={scale * 3.5}
+            color="#FFFFFF"
+            strokeCap="round"
+            strokeJoin="round"
+            opacity={op}
+          />
+        </Group>
       ))}
 
-      {/* Inner polygons — dimmer, depth */}
-      {INNER_INDICES.map((idx, k) => (
-        <Path
-          key={`inner-${idx}`}
-          path={paths[idx]}
-          style="stroke"
-          strokeWidth={scale * 2.5}
-          color="#7799BB"
-          strokeCap="round"
-          strokeJoin="round"
-          opacity={innerOp[k]}
-        />
+      {innerData.map(({ idx, xf, op }) => (
+        <Group key={`inner-${idx}`} transform={xf}>
+          <Path
+            path={paths[idx]}
+            style="stroke"
+            strokeWidth={scale * 2.5}
+            color="#7799BB"
+            strokeCap="round"
+            strokeJoin="round"
+            opacity={op}
+          />
+        </Group>
       ))}
     </Group>
   );

@@ -2,10 +2,15 @@
 
 # The-M Mobile App
 
-## Start every session by reading these two files first
+## MANDATORY: Read these files at the start of EVERY session — before asking the user anything
 
-- `docs/ARCHITECTURE.md` — full system design, component map, state architecture, performance rules, platform notes
-- `docs/PROGRESS.md` — what is done, what is next, known issues, architecture decision log
+| File | Why |
+|------|-----|
+| `docs/PHONE_SETUP.md` | ADB path, Metro start command, reconnect script, EAS build command, troubleshooting |
+| `docs/PROGRESS.md` | Current milestone, what is done, what is next, known issues |
+| `docs/ARCHITECTURE.md` | Full system design, component map, state architecture, performance rules |
+
+Do NOT ask the user how to start the server, connect the phone, or run a build — all answers are in `docs/PHONE_SETUP.md`.
 
 ## Quick context
 
