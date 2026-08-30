@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { GATEWAY } from '../config';
 
 function headers(): Record<string, string> {
@@ -84,12 +84,18 @@ export async function tts(text: string, signal?: AbortSignal): Promise<string> {
   }
 
   const buffer = await res.arrayBuffer();
+  console.log(`  ↳ buffer size: ${buffer.byteLength} bytes`);
   const base64 = arrayBufferToBase64(buffer);
   const destUri = FileSystem.cacheDirectory + `tts_${Date.now()}.mp3`;
-  await FileSystem.writeAsStringAsync(destUri, base64, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  console.log(`  ↳ audio saved: ${destUri}  (${Date.now() - t0}ms total)`);
+  try {
+    await FileSystem.writeAsStringAsync(destUri, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    console.log(`  ↳ audio saved: ${destUri}  (${Date.now() - t0}ms total)`);
+  } catch (e: any) {
+    console.log(`  ✗ write failed: ${e?.message ?? e}`);
+    throw new GatewayError(500, `Failed to save audio: ${e?.message}`);
+  }
   console.log(`━━━ [TTS] DONE ━━━\n`);
   return destUri;
 }

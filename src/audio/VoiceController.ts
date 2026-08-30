@@ -60,9 +60,9 @@ export class VoiceController {
     this.cb.onUserLevel(0);
     try {
       ExpoSpeechRecognitionModule.stop();
-      // Pipeline is triggered by onResult event — see onSpeechResult()
+      // Pipeline is triggered by the STT 'result' event — do NOT abort here
     } catch {
-      this.cb.onError('Recording failed');
+      // ignore — recognizer may already be stopped
     }
   }
 
@@ -109,9 +109,11 @@ export class VoiceController {
       this.cb.onReply(replyText);
 
       const { mode } = useSessionModeStore.getState();
+      console.log(`[PIPELINE] mode=${mode} signal.aborted=${signal.aborted}`);
       if (mode === 'voice') {
         const mp3Uri = await tts(replyText, signal);
-        if (signal.aborted) return;
+        console.log(`[PIPELINE] after TTS signal.aborted=${signal.aborted} uri=${mp3Uri}`);
+        if (signal.aborted) { console.log('[PIPELINE] ✗ aborted before playback'); return; }
         await this.playAudio(mp3Uri);
       } else {
         this.cb.onStateChange('idle');
@@ -166,10 +168,16 @@ export class VoiceController {
   private startAiPulse() {
     let t = 0;
     this.aiPulseInterval = setInterval(() => {
-      t += 0.12;
-      const level = 0.3 + 0.25 * Math.abs(Math.sin(t)) + 0.15 * Math.abs(Math.sin(t * 2.3));
-      this.cb.onAiLevel(Math.min(1, level));
-    }, 80);
+      t += 0.08;
+      // Overlapping sine waves at speech-like frequencies to simulate natural voice rhythm
+      const base     = 0.38 + 0.18 * Math.abs(Math.sin(t * 2.1));       // slow breath ~2Hz
+      const mid      = 0.14 * Math.abs(Math.sin(t * 5.3 + 1.2));        // syllable rate ~5Hz
+      const fast     = 0.10 * Math.abs(Math.sin(t * 11.7 + 0.7));       // consonant pops ~12Hz
+      const wobble   = 0.06 * Math.abs(Math.sin(t * 0.4));              // phrase-level swell
+      const spike    = t % 2.8 < 0.12 ? 0.18 : 0;                      // occasional emphasis
+      const level = Math.min(1, base + mid + fast + wobble + spike);
+      this.cb.onAiLevel(level);
+    }, 50);
   }
 
   private stopAiPulse() {

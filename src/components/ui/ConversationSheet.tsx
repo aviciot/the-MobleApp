@@ -19,10 +19,10 @@ import { useTheme } from '../../theme/useTheme';
 import { useTranscriptStore, type Turn } from '../../store/transcriptStore';
 import { useGatewayStore } from '../../store/gatewayStore';
 
+// Detects if the first strong character is RTL (Hebrew / Arabic)
 const RTL_REGEX = /[֐-׿؀-ۿ]/;
-
 function isRTL(text: string): boolean {
-  return RTL_REGEX.test(text);
+  return RTL_REGEX.test(text.trimStart().charAt(0));
 }
 
 function formatTime(ts: number): string {
@@ -49,17 +49,17 @@ export function ConversationSheet({ visible, onClose, onReplay, mode }: Conversa
 
   useEffect(() => {
     if (visible) {
-      translateY.value = withSpring(0, { damping: 24, stiffness: 200 });
-      backdropOpacity.value = withTiming(1, { duration: 200 });
+      translateY.value = withSpring(0, { damping: 26, stiffness: 220 });
+      backdropOpacity.value = withTiming(1, { duration: 180 });
     } else {
-      translateY.value = withSpring(900, { damping: 24, stiffness: 200 });
-      backdropOpacity.value = withTiming(0, { duration: 180 });
+      translateY.value = withSpring(900, { damping: 26, stiffness: 220 });
+      backdropOpacity.value = withTiming(0, { duration: 160 });
     }
   }, [visible]);
 
   useEffect(() => {
     if (visible) {
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
     }
   }, [finalizedTurns.length, liveText, visible]);
 
@@ -77,24 +77,25 @@ export function ConversationSheet({ visible, onClose, onReplay, mode }: Conversa
       <Animated.View
         style={[
           styles.sheet,
-          { paddingBottom: insets.bottom + 12, backgroundColor: theme.navBackground, borderColor: theme.navBorder },
+          { paddingBottom: insets.bottom + 8, backgroundColor: theme.background, borderColor: theme.cardBorder },
           sheetStyle,
         ]}
       >
-        {/* Handle */}
-        <View style={[styles.handle, { backgroundColor: theme.textTertiary }]} />
-
         {/* Header */}
-        <View style={styles.headerRow}>
-          <Text style={[styles.title, { color: theme.textPrimary }]}>Conversation</Text>
-          <View style={styles.headerRight}>
-            {finalizedTurns.length > 0 && (
-              <View style={[styles.badge, { backgroundColor: theme.accent + '22' }]}>
-                <Text style={[styles.badgeText, { color: theme.accent }]}>{finalizedTurns.length}</Text>
-              </View>
-            )}
-            <Pressable onPress={onClose} hitSlop={16} style={styles.closeBtn}>
-              <Text style={[styles.closeBtnText, { color: theme.textTertiary }]}>✕</Text>
+        <View style={[styles.header, { borderBottomColor: theme.cardBorder }]}>
+          <View style={[styles.handle, { backgroundColor: theme.textTertiary }]} />
+          <View style={styles.headerRow}>
+            <View style={styles.headerLeft}>
+              <View style={[styles.agentDot, { backgroundColor: theme.accent }]} />
+              <Text style={[styles.agentName, { color: theme.textPrimary }]}>{agentName}</Text>
+              {finalizedTurns.length > 0 && (
+                <View style={[styles.countPill, { backgroundColor: theme.cardBackground }]}>
+                  <Text style={[styles.countText, { color: theme.textTertiary }]}>{finalizedTurns.length}</Text>
+                </View>
+              )}
+            </View>
+            <Pressable onPress={onClose} hitSlop={16}>
+              <Text style={[styles.closeX, { color: theme.textTertiary }]}>✕</Text>
             </Pressable>
           </View>
         </View>
@@ -107,21 +108,30 @@ export function ConversationSheet({ visible, onClose, onReplay, mode }: Conversa
           showsVerticalScrollIndicator={false}
         >
           {turns.length === 0 && !liveText && (
-            <Text style={[styles.empty, { color: theme.textTertiary }]}>
-              Start speaking to begin the conversation
-            </Text>
+            <View style={styles.emptyState}>
+              <Text style={[styles.emptyIcon, { color: theme.textTertiary }]}>💬</Text>
+              <Text style={[styles.emptyTitle, { color: theme.textSecondary }]}>No messages yet</Text>
+              <Text style={[styles.emptySubtitle, { color: theme.textTertiary }]}>
+                Press the orb and start speaking
+              </Text>
+            </View>
           )}
 
-          {turns.map((turn) => (
-            <Bubble
-              key={turn.id}
-              turn={turn}
-              theme={theme}
-              mode={mode}
-              agentName={agentName}
-              onReplay={onReplay}
-            />
-          ))}
+          {turns.map((turn, i) => {
+            const prevTurn = i > 0 ? turns[i - 1] : null;
+            const showSender = !prevTurn || prevTurn.speaker !== turn.speaker;
+            return (
+              <Bubble
+                key={turn.id}
+                turn={turn}
+                theme={theme}
+                mode={mode}
+                agentName={agentName}
+                showSender={showSender}
+                onReplay={onReplay}
+              />
+            );
+          })}
 
           {liveText ? (
             <Bubble
@@ -130,6 +140,7 @@ export function ConversationSheet({ visible, onClose, onReplay, mode }: Conversa
               theme={theme}
               mode={mode}
               agentName={agentName}
+              showSender
               live
             />
           ) : null}
@@ -144,11 +155,12 @@ interface BubbleProps {
   theme: any;
   mode: 'voice' | 'chat';
   agentName: string;
+  showSender: boolean;
   live?: boolean;
   onReplay?: (text: string) => void;
 }
 
-function Bubble({ turn, theme, mode, agentName, live, onReplay }: BubbleProps) {
+function Bubble({ turn, theme, mode, agentName, showSender, live, onReplay }: BubbleProps) {
   const isUser = turn.speaker === 'user';
   const rtl = isRTL(turn.text);
 
@@ -157,166 +169,209 @@ function Bubble({ turn, theme, mode, agentName, live, onReplay }: BubbleProps) {
   }
 
   return (
-    <View style={[styles.bubbleRow, isUser ? styles.bubbleRowUser : styles.bubbleRowAI]}>
-      {/* AI avatar */}
-      {!isUser && (
-        <View style={[styles.avatar, { backgroundColor: theme.accent }]}>
-          <Text style={styles.avatarText}>{agentName.charAt(0).toUpperCase()}</Text>
-        </View>
+    <View style={[styles.messageGroup, isUser ? styles.messageGroupUser : styles.messageGroupAI]}>
+
+      {/* Sender label — only shown when speaker changes */}
+      {showSender && (
+        <Text style={[
+          styles.senderLabel,
+          { color: theme.textTertiary },
+          isUser ? styles.senderLabelUser : styles.senderLabelAI,
+        ]}>
+          {isUser ? 'You' : agentName}
+        </Text>
       )}
 
-      <View style={[styles.bubbleCol, isUser ? styles.bubbleColUser : styles.bubbleColAI]}>
-        {/* Agent name label */}
-        {!isUser && (
-          <Text style={[styles.senderLabel, { color: theme.textTertiary }]}>{agentName}</Text>
-        )}
+      {/* Bubble + actions row */}
+      <View style={[styles.bubbleWrapper, isUser ? styles.bubbleWrapperUser : styles.bubbleWrapperAI]}>
 
-        {/* Bubble */}
-        <View
-          style={[
-            styles.bubble,
-            isUser ? styles.bubbleUser : styles.bubbleAI,
-            {
-              backgroundColor: isUser ? theme.accent : theme.cardBackground,
-              borderColor: isUser ? 'transparent' : theme.cardBorder,
-              opacity: live ? 0.65 : 1,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.bubbleText,
-              { color: isUser ? '#ffffff' : theme.textPrimary },
-              rtl && styles.rtlText,
-            ]}
-          >
-            {turn.text}{live ? ' ▌' : ''}
-          </Text>
-        </View>
-
-        {/* Meta row */}
-        {!live && (
-          <View style={[styles.metaRow, isUser ? styles.metaRowUser : styles.metaRowAI]}>
-            <Text style={[styles.metaTime, { color: theme.textTertiary }]}>
-              {formatTime(turn.ts)}
-            </Text>
-            <Pressable onPress={handleCopy} hitSlop={8}>
-              <Text style={[styles.copyBtn, { color: theme.textTertiary }]}>⎘ Copy</Text>
-            </Pressable>
-            {!isUser && mode === 'chat' && onReplay && (
-              <Pressable onPress={() => onReplay(turn.text)} hitSlop={8}>
-                <Text style={[styles.replayBtn, { color: theme.accent }]}>🔊</Text>
-              </Pressable>
-            )}
+        {/* AI avatar — only on first message in a group */}
+        {!isUser && showSender && (
+          <View style={[styles.avatar, { backgroundColor: theme.accent }]}>
+            <Text style={styles.avatarText}>{agentName.charAt(0).toUpperCase()}</Text>
           </View>
         )}
+        {!isUser && !showSender && <View style={styles.avatarSpacer} />}
+
+        <View style={[styles.bubbleCol, isUser ? styles.bubbleColUser : styles.bubbleColAI]}>
+          {/* Bubble */}
+          <View style={[
+            styles.bubble,
+            isUser ? [styles.bubbleUser, { backgroundColor: theme.accent }]
+                   : [styles.bubbleAI, { backgroundColor: theme.cardBackground, borderColor: theme.cardBorder }],
+            live && { opacity: 0.6 },
+          ]}>
+            <Text style={[
+              styles.bubbleText,
+              { color: isUser ? '#fff' : theme.textPrimary },
+              rtl && styles.rtlText,
+            ]}>
+              {turn.text}{live ? ' ▌' : ''}
+            </Text>
+          </View>
+
+          {/* Meta row */}
+          {!live && (
+            <View style={[styles.meta, isUser ? styles.metaUser : styles.metaAI]}>
+              <Text style={[styles.metaTime, { color: theme.textTertiary }]}>
+                {formatTime(turn.ts)}
+              </Text>
+              <Pressable onPress={handleCopy} hitSlop={10}>
+                <Text style={[styles.copyIcon, { color: theme.textTertiary }]}>📋</Text>
+              </Pressable>
+              {!isUser && mode === 'chat' && onReplay && (
+                <Pressable onPress={() => onReplay(turn.text)} hitSlop={10}>
+                  <Text style={[styles.replayIcon, { color: theme.accent }]}>🔊</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+        </View>
       </View>
     </View>
   );
 }
 
+const AVATAR_SIZE = 30;
+
 const styles = StyleSheet.create({
-  backdrop: { backgroundColor: 'rgba(0,0,0,0.55)' },
+  backdrop: { backgroundColor: 'rgba(0,0,0,0.5)' },
+
   sheet: {
     position: 'absolute',
     bottom: 0, left: 0, right: 0,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
+    height: '88%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     borderTopWidth: 1,
-    height: '85%',
-    paddingTop: 12,
+  },
+
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   handle: {
-    width: 40, height: 4,
+    width: 36, height: 4,
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 14,
-    opacity: 0.4,
+    opacity: 0.35,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    marginBottom: 12,
   },
-  title: { fontSize: 18, fontWeight: '700', letterSpacing: 0.2 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  badge: {
-    paddingHorizontal: 8, paddingVertical: 3,
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  agentDot: {
+    width: 8, height: 8, borderRadius: 4,
+  },
+  agentName: {
+    fontSize: 16, fontWeight: '600', letterSpacing: 0.2,
+  },
+  countPill: {
+    paddingHorizontal: 7, paddingVertical: 2,
     borderRadius: 10,
   },
-  badgeText: { fontSize: 12, fontWeight: '700' },
-  closeBtn: { padding: 4 },
-  closeBtnText: { fontSize: 18 },
+  countText: { fontSize: 11, fontWeight: '600' },
+  closeX: { fontSize: 18, fontWeight: '400' },
 
   scroll: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    gap: 16,
-    flexGrow: 1,
-  },
-  empty: {
-    textAlign: 'center',
-    fontSize: 14,
-    marginTop: 60,
-    opacity: 0.5,
-    lineHeight: 22,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    gap: 2,
   },
 
-  bubbleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
+  emptyState: {
+    alignItems: 'center',
+    marginTop: 60,
     gap: 8,
   },
-  bubbleRowUser: { justifyContent: 'flex-end' },
-  bubbleRowAI: { justifyContent: 'flex-start' },
+  emptyIcon: { fontSize: 40 },
+  emptyTitle: { fontSize: 16, fontWeight: '600' },
+  emptySubtitle: { fontSize: 13, opacity: 0.7 },
+
+  // Message group — controls overall left/right alignment
+  messageGroup: {
+    marginVertical: 3,
+  },
+  messageGroupUser: { alignItems: 'flex-end' },
+  messageGroupAI: { alignItems: 'flex-start' },
+
+  senderLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    marginBottom: 4,
+    opacity: 0.6,
+    textTransform: 'uppercase',
+  },
+  senderLabelUser: { marginRight: 4 },
+  senderLabelAI: { marginLeft: AVATAR_SIZE + 8 },
+
+  bubbleWrapper: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 6,
+    maxWidth: '85%',
+  },
+  bubbleWrapperUser: { flexDirection: 'row-reverse' },
+  bubbleWrapperAI: { flexDirection: 'row' },
 
   avatar: {
-    width: 30, height: 30,
-    borderRadius: 15,
+    width: AVATAR_SIZE, height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 22,
+    marginBottom: 18,
     flexShrink: 0,
   },
   avatarText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  avatarSpacer: { width: AVATAR_SIZE, flexShrink: 0 },
 
-  bubbleCol: { gap: 4 },
-  bubbleColUser: { maxWidth: '75%', alignItems: 'flex-end' },
-  bubbleColAI: { maxWidth: '80%', alignItems: 'flex-start' },
-
-  senderLabel: { fontSize: 11, fontWeight: '600', marginLeft: 4, marginBottom: 2 },
+  bubbleCol: { flex: 1, gap: 3 },
+  bubbleColUser: { alignItems: 'flex-end' },
+  bubbleColAI: { alignItems: 'flex-start' },
 
   bubble: {
     borderRadius: 18,
-    borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    maxWidth: '100%',
   },
-  bubbleUser: { borderBottomRightRadius: 4 },
-  bubbleAI: { borderBottomLeftRadius: 4 },
-
+  bubbleUser: {
+    borderBottomRightRadius: 4,
+  },
+  bubbleAI: {
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+  },
   bubbleText: {
     fontSize: 15,
     lineHeight: 22,
+    letterSpacing: 0.1,
   },
   rtlText: {
     textAlign: 'right',
     writingDirection: 'rtl',
   },
 
-  metaRow: {
+  meta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 4,
-    marginTop: 2,
+    gap: 8,
+    paddingHorizontal: 2,
   },
-  metaRowUser: { justifyContent: 'flex-end' },
-  metaRowAI: { justifyContent: 'flex-start' },
+  metaUser: { justifyContent: 'flex-end' },
+  metaAI: { justifyContent: 'flex-start' },
   metaTime: { fontSize: 10, opacity: 0.55 },
-  copyBtn: { fontSize: 11, fontWeight: '500' },
-  replayBtn: { fontSize: 13 },
+  copyIcon: { fontSize: 12 },
+  replayIcon: { fontSize: 12 },
 });
