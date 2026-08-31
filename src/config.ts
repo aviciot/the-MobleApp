@@ -1,4 +1,5 @@
 import { useGatewayStore } from './store/gatewayStore';
+import { type STTLanguage } from './store/sttStore';
 
 export const DEFAULT_GATEWAY = {
   id: 'default',
@@ -9,6 +10,7 @@ export const DEFAULT_GATEWAY = {
   voiceAppSlug: 'freddy',
   voiceSlug: 'ep-voice-1',
   token: 'XMItLlhMUn1wGKJ88UudZ7irAcHEqONhZ4VFDDi0O1k',
+  sttLanguage: 'auto' as STTLanguage,
 };
 
 export function getGatewayConfig() {

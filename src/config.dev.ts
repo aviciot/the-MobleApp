@@ -22,6 +22,7 @@ export const DEV_PROFILES = [
     voiceAppSlug: 'freddy',
     voiceSlug: 'ep-voice-1',
     token: TOKEN,
+    sttLanguage: 'auto' as const,
   },
   {
     name: 'File Agent (SSE)',
@@ -31,6 +32,7 @@ export const DEV_PROFILES = [
     voiceAppSlug: 'freddy',
     voiceSlug: 'ep-voice-1',
     token: TOKEN,
+    sttLanguage: 'auto' as const,
   },
   {
     name: 'Freddy — USB',
@@ -40,6 +42,7 @@ export const DEV_PROFILES = [
     voiceAppSlug: 'freddy',
     voiceSlug: 'ep-voice-1',
     token: TOKEN,
+    sttLanguage: 'auto' as const,
   },
   {
     name: 'File Agent (SSE) — USB',
@@ -49,5 +52,6 @@ export const DEV_PROFILES = [
     voiceAppSlug: 'freddy',
     voiceSlug: 'ep-voice-1',
     token: TOKEN,
+    sttLanguage: 'auto' as const,
   },
 ];

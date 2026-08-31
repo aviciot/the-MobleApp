@@ -8,7 +8,8 @@ import { tts, GatewayError } from './GatewayClient';
 import { streamToOrchestrator, resetConversation, A2AError, type A2AArtifact, type A2AFile } from '../ai/A2AClient';
 import type { CardModel } from '../store/cardStore';
 import { useSessionModeStore } from '../store/sessionModeStore';
-import { useSTTStore, resolveSTTLang } from '../store/sttStore';
+import { resolveSTTLang } from '../store/sttStore';
+import { useGatewayStore } from '../store/gatewayStore';
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing' | 'thinking' | 'speaking' | 'error';
 
@@ -54,9 +55,9 @@ export class VoiceController {
       }
       this.recognizedText = '';
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      const { language } = useSTTStore.getState();
+      const profile = useGatewayStore.getState().activeProfile();
       ExpoSpeechRecognitionModule.start({
-        lang: resolveSTTLang(language),
+        lang: resolveSTTLang(profile?.sttLanguage ?? 'auto'),
         interimResults: true,
         continuous: false,
       });

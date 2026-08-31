@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
+import { type STTLanguage } from './sttStore';
 
 export interface GatewayProfile {
   id: string;
@@ -10,6 +11,7 @@ export interface GatewayProfile {
   voiceAppSlug: string;
   voiceSlug: string;
   token: string;
+  sttLanguage: STTLanguage;
 }
 
 interface GatewayStore {
@@ -64,6 +66,7 @@ export const useGatewayStore = create<GatewayStore>((set, get) => ({
           if (!updated.voiceSlug) { updated.voiceSlug = updated.appSlug; changed_p = true; }
           if (!updated.epSlug) { updated.epSlug = updated.appSlug; changed_p = true; }
           if (!updated.voiceAppSlug) { updated.voiceAppSlug = updated.appSlug; changed_p = true; }
+          if (!updated.sttLanguage) { updated.sttLanguage = 'auto'; changed_p = true; }
           if (changed_p) changed = true;
           return updated;
         });

@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEMES, type ThemeId } from '../../theme/themes';
 import { useTheme, useSetTheme } from '../../theme/useTheme';
 import { useGatewayStore, type GatewayProfile } from '../../store/gatewayStore';
-import { useSTTStore, type STTLanguage } from '../../store/sttStore';
+import { type STTLanguage } from '../../store/sttStore';
 
 const THEME_IDS: ThemeId[] = ['cosmic', 'matrix', 'ghost', 'inferno'];
 
@@ -30,14 +30,13 @@ interface SettingsSheetProps {
 
 type EditingProfile = Omit<GatewayProfile, 'id'> & { id?: string };
 
-const EMPTY_PROFILE: EditingProfile = { name: '', baseUrl: '', appSlug: '', epSlug: '', voiceAppSlug: '', voiceSlug: '', token: '' };
+const EMPTY_PROFILE: EditingProfile = { name: '', baseUrl: '', appSlug: '', epSlug: '', voiceAppSlug: '', voiceSlug: '', token: '', sttLanguage: 'auto' };
 
 export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const setTheme = useSetTheme();
   const { profiles, activeId, addProfile, updateProfile, deleteProfile, setActive } = useGatewayStore();
-  const { language: sttLanguage, setLanguage: setSttLanguage } = useSTTStore();
 
   const [editing, setEditing] = useState<EditingProfile | null>(null);
 
@@ -73,15 +72,15 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
 
   async function saveEditing() {
     if (!editing) return;
-    const { name, baseUrl, appSlug, epSlug, voiceAppSlug, voiceSlug, token } = editing;
+    const { name, baseUrl, appSlug, epSlug, voiceAppSlug, voiceSlug, token, sttLanguage } = editing;
     if (!name.trim() || !baseUrl.trim() || !appSlug.trim() || !epSlug.trim()) {
       Alert.alert('Missing fields', 'Name, URL, App Slug and EP Slug are required.');
       return;
     }
     if (editing.id) {
-      await updateProfile(editing.id, { name, baseUrl, appSlug, epSlug, voiceAppSlug: voiceAppSlug || appSlug, voiceSlug, token });
+      await updateProfile(editing.id, { name, baseUrl, appSlug, epSlug, voiceAppSlug: voiceAppSlug || appSlug, voiceSlug, token, sttLanguage: sttLanguage ?? 'auto' });
     } else {
-      await addProfile({ name, baseUrl, appSlug, epSlug, voiceAppSlug: voiceAppSlug || appSlug, voiceSlug: voiceSlug || epSlug, token });
+      await addProfile({ name, baseUrl, appSlug, epSlug, voiceAppSlug: voiceAppSlug || appSlug, voiceSlug: voiceSlug || epSlug, token, sttLanguage: sttLanguage ?? 'auto' });
     }
     setEditing(null);
   }
@@ -216,6 +215,24 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                 secureTextEntry
               />
 
+              <Text style={[labelStyle, { marginTop: 12 }]}>Speech Language</Text>
+              <View style={[styles.modeRow, { borderColor: theme.cardBorder, backgroundColor: theme.cardBackground, marginBottom: 4 }]}>
+                {([['auto', 'Auto'], ['en-US', 'English'], ['he-IL', 'Hebrew']] as [STTLanguage, string][]).map(([val, label]) => {
+                  const active = (editing.sttLanguage ?? 'auto') === val;
+                  return (
+                    <Pressable
+                      key={val}
+                      style={[styles.modeOption, active && styles.modeOptionActive, active && { backgroundColor: theme.accent }]}
+                      onPress={() => setEditing((e) => e && { ...e, sttLanguage: val })}
+                    >
+                      <Text style={active ? styles.modeOptionTextActive : [styles.modeOptionText, { color: theme.textTertiary }]}>
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
               <Pressable
                 style={[styles.btn, styles.testBtn, { borderColor: theme.accent, marginTop: 16 }]}
                 onPress={() => editing && testProfile(editing as GatewayProfile)}
@@ -307,25 +324,6 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                   />
                   <Text style={[styles.swatchLabel, { color: selected ? theme.textPrimary : theme.textTertiary }]}>
                     {t.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {/* ── STT Language ── */}
-          <Text style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: 32 }]}>Speech Language</Text>
-          <View style={[styles.modeRow, { borderColor: theme.cardBorder, backgroundColor: theme.cardBackground }]}>
-            {([['auto', 'Auto'], ['en-US', 'English'], ['he-IL', 'Hebrew']] as [STTLanguage, string][]).map(([val, label]) => {
-              const active = sttLanguage === val;
-              return (
-                <Pressable
-                  key={val}
-                  style={[styles.modeOption, active && styles.modeOptionActive, active && { backgroundColor: theme.accent }]}
-                  onPress={() => setSttLanguage(val)}
-                >
-                  <Text style={active ? styles.modeOptionTextActive : [styles.modeOptionText, { color: theme.textTertiary }]}>
-                    {label}
                   </Text>
                 </Pressable>
               );
