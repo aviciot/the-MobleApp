@@ -121,11 +121,11 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   buildLabel: {
-    color: Colors.textTertiary,
-    fontSize: 10,
-    fontWeight: '300',
+    color: Colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '400',
     letterSpacing: 1,
-    opacity: 0.45,
+    opacity: 0.7,
     marginTop: 14,
   },
 });
