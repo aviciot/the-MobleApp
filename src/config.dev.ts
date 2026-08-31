@@ -41,4 +41,13 @@ export const DEV_PROFILES = [
     voiceSlug: 'ep-voice-1',
     token: TOKEN,
   },
+  {
+    name: 'File Agent (SSE) — USB',
+    baseUrl: USB,
+    appSlug: 'stream',
+    epSlug: 'a2a-2',
+    voiceAppSlug: 'freddy',
+    voiceSlug: 'ep-voice-1',
+    token: TOKEN,
+  },
 ];
