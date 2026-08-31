@@ -124,14 +124,25 @@ export class VoiceController {
 
     const SENTENCE_END = /[.!?。！？׃\n]\s*/;
 
+    // Strip markdown before sending to TTS so it doesn't speak "asterisk asterisk"
+    const stripMarkdown = (s: string) =>
+      s.replace(/\*\*(.*?)\*\*/g, '$1')   // bold
+       .replace(/\*(.*?)\*/g, '$1')        // italic
+       .replace(/`{1,3}[^`]*`{1,3}/g, '') // code
+       .replace(/#{1,6}\s*/g, '')          // headings
+       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
+       .replace(/[_~]/g, '');             // underline/strikethrough
+
     const flushSentence = (text: string, _force = false) => {
       if (!text.trim() || signal.aborted) return;
       if (mode !== 'voice') return;
       ttsQueue = ttsQueue.then(async () => {
         if (signal.aborted) return;
         try {
-          console.log(`[PIPELINE] TTS sentence: "${text.slice(0, 50)}…"`);
-          const uri = await tts(text.trim(), signal);
+          const clean = stripMarkdown(text.trim());
+          if (!clean) return;
+          console.log(`[PIPELINE] TTS sentence: "${clean.slice(0, 50)}…"`);
+          const uri = await tts(clean, signal);
           if (signal.aborted) return;
           await this.playAudio(uri);
         } catch (e: any) {
