@@ -113,9 +113,9 @@ export function TheMOrb({ cx, cy, radius, mode, energy, clock, assembleOnMount }
     band.b.value      = withTiming(c.band[2], d);
   }, [theme]);
 
-  const groupTransform = useDerivedValue(() => {
+  const groupTransform = useDerivedValue((): { rotate: number }[] => {
     const rad = (rotation.value * Math.PI) / 180;
-    return [{ rotate: rad }] as const;
+    return [{ rotate: rad }];
   });
 
   const uniforms = useDerivedValue(() => ({

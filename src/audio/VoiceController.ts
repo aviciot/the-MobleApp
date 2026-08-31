@@ -29,16 +29,26 @@ export class VoiceController {
   private _playResolve: (() => void) | null = null;
   private cb: VoiceControllerCallbacks;
   private recognizedText: string = '';
+  // Guards against permission-race and duplicate final events
+  private _cancelled = false;
+  private _pipelineRunning = false;
 
   constructor(callbacks: VoiceControllerCallbacks) {
     this.cb = callbacks;
   }
 
   async startRecording(_recorder: AudioRecorder) {
+    this._cancelled = false;
+    this._pipelineRunning = false;
     try {
       const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      // Permission dialog returned — check if user cancelled while it was open
       if (!granted) {
         this.cb.onError('Microphone permission denied');
+        return;
+      }
+      if (this._cancelled) {
+        // User released the orb while the permission dialog was open
         return;
       }
       this.recognizedText = '';
@@ -66,18 +76,24 @@ export class VoiceController {
 
   // Called from the screen via useSpeechRecognitionEvent hook
   onSpeechResult(text: string, isFinal: boolean) {
+    if (this._cancelled) return;
     this.recognizedText = text;
     if (text) this.cb.onTranscript(text);
     if (isFinal) {
       console.log(`\n━━━ [STT] FINAL: "${text}" ━━━`);
-      if (text) this.runPipeline(text);
-      else console.log('  ↳ empty — skipping pipeline');
+      // Guard against duplicate final events for the same utterance
+      if (text && !this._pipelineRunning) {
+        this._pipelineRunning = true;
+        this.runPipeline(text);
+      } else if (!text) {
+        console.log('  ↳ empty — skipping pipeline');
+        this.cb.onStateChange('idle');
+      }
     }
   }
 
   onSpeechError(message: string) {
     console.log('[STT] error:', message);
-    // Benign errors — user stopped speaking, recognizer finished, or no input
     const benign = ['no-speech', 'no-match', 'speech timeout', 'recognizer busy', '7', '8', '5'];
     const isBenign = benign.some((code) => message.toLowerCase().includes(code));
     if (!isBenign) {
@@ -99,7 +115,6 @@ export class VoiceController {
     this.cb.onStateChange('thinking');
     console.log(`\n━━━ [PIPELINE] START mode=${mode} ━━━`);
 
-    // Sentence splitter — buffer chunks and flush complete sentences
     let sentenceBuffer = '';
     let fullReply = '';
     let ttsQueue: Promise<void> = Promise.resolve();
@@ -107,7 +122,7 @@ export class VoiceController {
 
     const SENTENCE_END = /[.!?。！？׃\n]\s*/;
 
-    const flushSentence = (text: string, force = false) => {
+    const flushSentence = (text: string, _force = false) => {
       if (!text.trim() || signal.aborted) return;
       if (mode !== 'voice') return;
       ttsQueue = ttsQueue.then(async () => {
@@ -138,7 +153,6 @@ export class VoiceController {
       if (mode !== 'voice') return;
 
       sentenceBuffer += chunk;
-      // Flush whenever we have a complete sentence
       let match: RegExpExecArray | null;
       while ((match = SENTENCE_END.exec(sentenceBuffer)) !== null) {
         const end = match.index + match[0].length;
@@ -150,14 +164,13 @@ export class VoiceController {
 
     const onDone = () => {
       if (signal.aborted) return;
-      // Flush any remaining buffered text (e.g. Hebrew sentence with no punctuation)
       if (sentenceBuffer.trim()) flushSentence(sentenceBuffer, true);
       sentenceBuffer = '';
 
-      // Wait for TTS queue to drain, then go idle
       ttsQueue.then(() => {
         if (!signal.aborted) {
           this.stopAiPulse();
+          this._pipelineRunning = false;
           this.cb.onStateChange('idle');
         }
       });
@@ -190,8 +203,11 @@ export class VoiceController {
             } else {
               this.cb.onError(`Error: ${(e as Error)?.message ?? 'unknown'}`);
             }
-            this.cb.onStateChange('idle');
             this.stopAiPulse();
+            this._pipelineRunning = false;
+            this.cb.onStateChange('idle');
+          } else {
+            this._pipelineRunning = false;
           }
           resolve();
         },
@@ -204,7 +220,11 @@ export class VoiceController {
   }
 
   private async playAudio(uri: string): Promise<void> {
-    if (!this.player) { console.log('[AUDIO] ✗ no player'); this.cb.onError('Player not ready'); return; }
+    if (!this.player) {
+      console.log('[AUDIO] ✗ no player — returning to idle');
+      this.cb.onStateChange('idle');
+      return;
+    }
     return new Promise<void>((resolve) => {
       this._playResolve = resolve;
       try {
@@ -226,7 +246,6 @@ export class VoiceController {
         });
       } catch (e: any) {
         console.log('[AUDIO] ✗ error:', e?.message ?? e);
-        this.cb.onError('Playback failed');
         resolve();
       }
     });
@@ -236,12 +255,11 @@ export class VoiceController {
     let t = 0;
     this.aiPulseInterval = setInterval(() => {
       t += 0.08;
-      // Overlapping sine waves at speech-like frequencies to simulate natural voice rhythm
-      const base     = 0.38 + 0.18 * Math.abs(Math.sin(t * 2.1));       // slow breath ~2Hz
-      const mid      = 0.14 * Math.abs(Math.sin(t * 5.3 + 1.2));        // syllable rate ~5Hz
-      const fast     = 0.10 * Math.abs(Math.sin(t * 11.7 + 0.7));       // consonant pops ~12Hz
-      const wobble   = 0.06 * Math.abs(Math.sin(t * 0.4));              // phrase-level swell
-      const spike    = t % 2.8 < 0.12 ? 0.18 : 0;                      // occasional emphasis
+      const base     = 0.38 + 0.18 * Math.abs(Math.sin(t * 2.1));
+      const mid      = 0.14 * Math.abs(Math.sin(t * 5.3 + 1.2));
+      const fast     = 0.10 * Math.abs(Math.sin(t * 11.7 + 0.7));
+      const wobble   = 0.06 * Math.abs(Math.sin(t * 0.4));
+      const spike    = t % 2.8 < 0.12 ? 0.18 : 0;
       const level = Math.min(1, base + mid + fast + wobble + spike);
       this.cb.onAiLevel(level);
     }, 50);
@@ -253,6 +271,8 @@ export class VoiceController {
   }
 
   abort() {
+    this._cancelled = true;
+    this._pipelineRunning = false;
     this.abortController?.abort();
     this.stopAiPulse();
     this.playbackSubscription?.remove();

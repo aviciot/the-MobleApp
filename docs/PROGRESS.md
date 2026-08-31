@@ -1,6 +1,6 @@
 # The-M Mobile App — Progress
 
-Last updated: 2026-07-18
+Last updated: 2026-08-31
 
 ---
 
@@ -137,6 +137,7 @@ This is the core milestone. Everything in Milestone 1 is mocked — this wires i
 | Transcript not throttled | Low | `appendToken` writes directly to Zustand. Add a 100ms debounce buffer before Milestone 3. |
 | Android blur fallback untested | Medium | ContentCard has a Platform.select fallback but it hasn't been tested on a real Android device. |
 | Navigation is state-based | Low | Simple `useState` navigator works for MVP. Replace with React Navigation stack before Milestone 7 (multi-screen complexity). |
+| expo-speech-recognition requires new build | High | Adding expo-speech-recognition to app.config.js plugins requires a new EAS development build before the plugin takes effect on device. Run: `eas build --platform android --profile development` |
 | No error boundary | Medium | Add a React error boundary around HomeScreen before real WebRTC wiring. |
 
 ---

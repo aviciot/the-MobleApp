@@ -14,6 +14,14 @@ module.exports = {
       'expo-dev-client',
       ['expo-audio', { microphonePermission: 'The-M needs your microphone to hear you speak.' }],
       'expo-secure-store',
+      [
+        'expo-speech-recognition',
+        {
+          microphonePermission: 'The-M needs your microphone to hear your voice.',
+          speechRecognitionPermission: 'The-M uses on-device speech recognition to transcribe what you say.',
+          androidSpeechServicePackages: ['com.google.android.googlequicksearchbox'],
+        },
+      ],
     ],
     developmentClient: { silentLaunch: true },
     ios: {

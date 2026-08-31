@@ -2,8 +2,13 @@
 // Switch back to: import { fetch } from 'expo/fetch'; after running eas build
 import { GATEWAY } from '../config';
 
-let contextId: string | null = null;
+// Per-gateway-per-slug context map — prevents cross-agent context leakage
+const contextMap = new Map<string, string>();
 let requestCounter = 0;
+
+function ctxKey(baseUrl: string, appSlug: string): string {
+  return `${baseUrl}::${appSlug}`;
+}
 
 export interface A2APart {
   type?: 'text' | 'data' | 'file';
@@ -34,6 +39,13 @@ export async function sendToOrchestrator(
   userText: string,
   signal?: AbortSignal,
 ): Promise<A2AResult> {
+  // Capture gateway config once — immune to mid-request profile switches
+  const baseUrl = GATEWAY.baseUrl;
+  const appSlug = GATEWAY.appSlug;
+  const token = GATEWAY.token;
+
+  const key = ctxKey(baseUrl, appSlug);
+  const contextId = contextMap.get(key) ?? null;
   const id = String(++requestCounter);
 
   const body = {
@@ -49,7 +61,7 @@ export async function sendToOrchestrator(
     },
   };
 
-  const url = `${GATEWAY.baseUrl}/a2a/${GATEWAY.appSlug}`;
+  const url = `${baseUrl}/a2a/${appSlug}`;
   const t0 = Date.now();
   console.log(`\n━━━ [A2A] REQUEST #${id} ━━━`);
   console.log(`  url:  ${url}`);
@@ -59,7 +71,7 @@ export async function sendToOrchestrator(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(GATEWAY.token ? { Authorization: `Bearer ${GATEWAY.token}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(body),
     signal,
@@ -82,23 +94,23 @@ export async function sendToOrchestrator(
 
   const result = json.result;
 
-  // Persist contextId for conversation continuity
-  if (result?.contextId) contextId = result.contextId;
-  if (!contextId && result?.message?.contextId) contextId = result.message.contextId;
+  // Persist contextId scoped to this gateway+slug
+  const newCtx = result?.contextId ?? result?.message?.contextId ?? null;
+  if (newCtx) contextMap.set(key, newCtx);
 
   const artifacts: A2AArtifact[] = result?.artifacts ?? [];
 
-  // Extract reply text — type field is optional, presence of .text is sufficient
+  // Prefer result.message.parts text; fall back to artifact text
   let replyText = '';
-  for (const artifact of artifacts) {
-    for (const part of artifact.parts ?? []) {
-      if (part.text) { replyText = part.text; break; }
-    }
-    if (replyText) break;
+  for (const part of result?.message?.parts ?? []) {
+    if (part.text) { replyText = part.text; break; }
   }
   if (!replyText) {
-    for (const part of result?.message?.parts ?? []) {
-      if (part.text) { replyText = part.text; break; }
+    for (const artifact of artifacts) {
+      for (const part of artifact.parts ?? []) {
+        if (part.text) { replyText = part.text; break; }
+      }
+      if (replyText) break;
     }
   }
 
@@ -116,10 +128,11 @@ export async function sendToOrchestrator(
     }
   }
 
+  const finalCtx = contextMap.get(key) ?? '';
   console.log(`  ↳ replyText (${replyText.length} chars): "${replyText.slice(0, 80)}${replyText.length > 80 ? '…' : ''}"`);
   if (files.length > 0) console.log(`  ↳ files: ${files.map(f => f.name).join(', ')}`);
   console.log(`━━━ [A2A] DONE #${id} (${Date.now() - t0}ms) ━━━\n`);
-  return { replyText, artifacts, files, contextId: contextId ?? '' };
+  return { replyText, artifacts, files, contextId: finalCtx };
 }
 
 export interface StreamCallbacks {
@@ -136,8 +149,15 @@ export async function streamToOrchestrator(
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
 ): Promise<void> {
+  // Capture gateway config once — immune to mid-request profile switches
+  const baseUrl = GATEWAY.baseUrl;
+  const appSlug = GATEWAY.appSlug;
+  const token = GATEWAY.token;
+
+  const key = ctxKey(baseUrl, appSlug);
+  const contextId = contextMap.get(key) ?? null;
   const id = String(++requestCounter);
-  const url = `${GATEWAY.baseUrl}/a2a/${GATEWAY.appSlug}`;
+  const url = `${baseUrl}/a2a/${appSlug}`;
   const t0 = Date.now();
 
   console.log(`\n━━━ [A2A STREAM] REQUEST #${id} ━━━`);
@@ -149,7 +169,6 @@ export async function streamToOrchestrator(
   const settle = (fn: () => void) => { if (!settled) { settled = true; fn(); } };
 
   // Inactivity timeout — resets on every chunk, not just the first byte.
-  // Cleared in finally so it never fires after the stream ends.
   const INACTIVITY_MS = 15_000;
   let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
   const resetInactivity = () => {
@@ -175,7 +194,6 @@ export async function streamToOrchestrator(
     },
   };
 
-  // expo/fetch provides native Android streaming transport — getReader() delivers chunks before EOF
   let res: Response;
   try {
     res = await fetch(url, {
@@ -184,7 +202,7 @@ export async function streamToOrchestrator(
         'Content-Type': 'application/json',
         'Accept': 'text/event-stream',
         'Accept-Encoding': 'identity',
-        ...(GATEWAY.token ? { Authorization: `Bearer ${GATEWAY.token}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(body),
       signal,
@@ -210,19 +228,16 @@ export async function streamToOrchestrator(
   }
 
   const decoder = new TextDecoder();
-  // SSE parse state — accumulate lines until a blank-line event boundary
-  let rawBuffer = '';   // bytes not yet split into lines
-  let eventLines: string[] = [];  // data:/event:/id: lines for the current SSE event
+  let rawBuffer = '';
+  let eventLines: string[] = [];
 
   let fullText = '';
-  let streamContextId = contextId;
+  let streamContextId: string | null = contextId;
   const collectedArtifacts: A2AArtifact[] = [];
   const collectedFiles: A2AFile[] = [];
   let chunkCount = 0;
 
-  // Returns true when a terminal A2A event was dispatched (stop reading)
   const dispatchSSEEvent = (dataLines: string[]): boolean => {
-    // Concatenate multi-line data: values per SSE spec
     const dataPayload = dataLines
       .filter(l => l.startsWith('data:'))
       .map(l => l.slice(5).trimStart())
@@ -271,7 +286,7 @@ export async function streamToOrchestrator(
             if (part.text && !fullText) { fullText = part.text; callbacks.onChunk(part.text); }
           }
           console.log(`  ↳ done (${state}): ${fullText.length} chars, ${collectedArtifacts.length} artifacts, ${collectedFiles.length} files, ${chunkCount} chunks — ${Date.now() - t0}ms`);
-          if (streamContextId) contextId = streamContextId;
+          if (streamContextId) contextMap.set(key, streamContextId);
           settle(() => callbacks.onDone({ replyText: fullText, artifacts: collectedArtifacts, files: collectedFiles, contextId: streamContextId ?? '' }));
           return true;
         }
@@ -287,11 +302,8 @@ export async function streamToOrchestrator(
     }
   };
 
-  // Feed a decoded text chunk into the SSE line buffer and dispatch complete events
-  // Returns true when a terminal event was dispatched
   const feedChunk = (text: string): boolean => {
     rawBuffer += text;
-    // Split on \n; a blank line = event boundary (SSE spec §9.2.6)
     while (true) {
       const nl = rawBuffer.indexOf('\n');
       if (nl === -1) break;
@@ -299,7 +311,6 @@ export async function streamToOrchestrator(
       rawBuffer = rawBuffer.slice(nl + 1);
 
       if (line === '') {
-        // Blank line — dispatch accumulated event lines
         if (eventLines.length > 0) {
           const terminal = dispatchSSEEvent(eventLines);
           eventLines = [];
@@ -313,7 +324,7 @@ export async function streamToOrchestrator(
   };
 
   try {
-    resetInactivity(); // start first-byte timer
+    resetInactivity();
 
     while (true) {
       if (signal?.aborted) { settle(() => {}); break; }
@@ -323,16 +334,14 @@ export async function streamToOrchestrator(
 
       if (done) {
         console.log(`  ↳ [STREAM] EOF at ${elapsed}s — ${chunkCount} chunks total`);
-        // Flush TextDecoder and any remaining buffer at EOF
-        const tail = decoder.decode(); // flushes internal state
+        const tail = decoder.decode();
         if (tail) feedChunk(tail);
-        // Process any event accumulated without a trailing blank line
         if (eventLines.length > 0) dispatchSSEEvent(eventLines);
         break;
       }
 
       chunkCount++;
-      resetInactivity(); // reset inactivity window on every chunk
+      resetInactivity();
       const chunk = decoder.decode(value, { stream: true });
       console.log(`  ↳ [STREAM] chunk #${chunkCount} at ${elapsed}s — ${value.byteLength} bytes`);
 
@@ -348,11 +357,9 @@ export async function streamToOrchestrator(
     reader.cancel().catch(() => {});
   }
 
-  // EOF without any terminal A2A event — incomplete stream
   if (!settled) {
     if (fullText) {
-      // We got text but server never sent task-status-update completed — report what we have
-      if (streamContextId) contextId = streamContextId;
+      if (streamContextId) contextMap.set(key, streamContextId);
       settle(() => callbacks.onDone({ replyText: fullText, artifacts: collectedArtifacts, files: collectedFiles, contextId: streamContextId ?? '' }));
     } else {
       settle(() => callbacks.onError(new A2AError(-1, 'Stream closed without a terminal event')));
@@ -361,7 +368,14 @@ export async function streamToOrchestrator(
 }
 
 export function resetConversation() {
-  contextId = null;
+  // Reset context for the currently active gateway+slug
+  const baseUrl = GATEWAY.baseUrl;
+  const appSlug = GATEWAY.appSlug;
+  contextMap.delete(ctxKey(baseUrl, appSlug));
+}
+
+export function resetContextForProfile(baseUrl: string, appSlug: string) {
+  contextMap.delete(ctxKey(baseUrl, appSlug));
 }
 
 export class A2AError extends Error {

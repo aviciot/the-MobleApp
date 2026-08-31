@@ -39,6 +39,7 @@ export function useVoicePipeline({ energy, amplitude }: UseVoicePipelineOptions)
             setLiveSpeaker('ai');
             break;
           case 'idle':
+            setLiveSpeaker('ai');
             finalizeTurn();
             setState('idle');
             break;
@@ -47,7 +48,7 @@ export function useVoicePipeline({ energy, amplitude }: UseVoicePipelineOptions)
             break;
         }
       },
-      onTranscript: (text) => appendToken(text),
+      onTranscript: (text) => setLiveText(text),
       onReply: (text) => { setLiveSpeaker('ai'); setLiveText(text); },
       onCards: (cards) => cards.forEach((card) => addCard(card)),
       onError: (message) => {

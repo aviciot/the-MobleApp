@@ -5,8 +5,8 @@ export interface GatewayProfile {
   id: string;
   name: string;
   baseUrl: string;
-  appSlug: string;   // A2A endpoint slug  → /a2a/{appSlug}
-  voiceSlug: string; // Voice endpoint slug → /apps/{voiceSlug}/voice/tts
+  appSlug: string;
+  voiceSlug: string;
   token: string;
 }
 
@@ -26,9 +26,15 @@ const STORAGE_KEY = 'gateway_profiles_v1';
 const ACTIVE_KEY = 'gateway_active_id_v1';
 let idCounter = 0;
 
-function persist(profiles: GatewayProfile[], activeId: string | null) {
-  SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(profiles));
-  SecureStore.setItemAsync(ACTIVE_KEY, activeId ?? '');
+// Serialize all SecureStore writes through a single promise chain
+// so rapid mutations always persist in the order they were called.
+let persistChain: Promise<void> = Promise.resolve();
+
+function persist(profiles: GatewayProfile[], activeId: string | null): void {
+  persistChain = persistChain.then(async () => {
+    await SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(profiles));
+    await SecureStore.setItemAsync(ACTIVE_KEY, activeId ?? '');
+  }).catch(() => {});
 }
 
 export const useGatewayStore = create<GatewayStore>((set, get) => ({
@@ -46,7 +52,6 @@ export const useGatewayStore = create<GatewayStore>((set, get) => ({
       const raw = await SecureStore.getItemAsync(STORAGE_KEY);
       const activeId = await SecureStore.getItemAsync(ACTIVE_KEY);
       const all: GatewayProfile[] = raw ? JSON.parse(raw) : [];
-      // Deduplicate by id — keeps first occurrence
       const seen = new Set<string>();
       let changed = false;
       const profiles = all
@@ -61,7 +66,6 @@ export const useGatewayStore = create<GatewayStore>((set, get) => ({
 
   addProfile: async (p) => {
     const { profiles, activeId } = get();
-    // Prevent duplicate names from double-mount in dev strict mode
     if (profiles.some((x) => x.name === p.name)) return;
     const profile: GatewayProfile = { ...p, id: `gw_${Date.now()}_${++idCounter}` };
     const newProfiles = [...profiles, profile];
