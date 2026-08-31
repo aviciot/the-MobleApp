@@ -6,7 +6,6 @@ module.exports = {
     slug: 'avi',
     scheme: 'them',
     version: '1.0.1',
-    runtimeVersion: { policy: 'appVersion' },
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
