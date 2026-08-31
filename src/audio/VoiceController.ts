@@ -125,14 +125,17 @@ export class VoiceController {
 
     const SENTENCE_END = /[.!?。！？׃\n]\s*/;
 
-    // Strip markdown before sending to TTS so it doesn't speak "asterisk asterisk"
+    // Strip markdown + emoji + separators before TTS
     const stripMarkdown = (s: string) =>
-      s.replace(/\*\*(.*?)\*\*/g, '$1')   // bold
-       .replace(/\*(.*?)\*/g, '$1')        // italic
-       .replace(/`{1,3}[^`]*`{1,3}/g, '') // code
-       .replace(/#{1,6}\s*/g, '')          // headings
+      s.replace(/\*\*(.*?)\*\*/g, '$1')        // bold
+       .replace(/\*(.*?)\*/g, '$1')             // italic
+       .replace(/`{1,3}[^`]*`{1,3}/g, '')      // inline/block code
+       .replace(/#{1,6}\s*/g, '')               // headings
        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
-       .replace(/[_~]/g, '');             // underline/strikethrough
+       .replace(/[_~]/g, '')                    // underline/strikethrough
+       .replace(/^[-*]{3,}\s*$/gm, '')          // --- or *** separators
+       .replace(/\p{Emoji}/gu, '')              // emoji (✅ 👋 etc.)
+       .trim();
 
     const flushSentence = (text: string, _force = false) => {
       if (!text.trim() || signal.aborted) return;
@@ -316,6 +319,17 @@ function artifactsToCards(artifacts: A2AArtifact[]): CardModel[] {
       if (part.type === 'data' && part.data) {
         const card = dataToCard(part.data);
         if (card) cards.push(card);
+      } else if (part.type === 'file' && part.file) {
+        // File parts inside artifacts — surface as file cards
+        cards.push({
+          id: `artifact-file-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          type: 'file' as const,
+          createdAt: Date.now(),
+          fileName: part.file.name ?? 'file',
+          sizeBytes: 0,
+          mimeType: part.file.mimeType ?? 'application/octet-stream',
+          remoteUri: part.file.uri,
+        });
       }
     }
   }
