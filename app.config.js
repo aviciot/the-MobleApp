@@ -11,6 +11,7 @@ module.exports = {
     userInterfaceStyle: 'dark',
     backgroundColor: '#050510',
     plugins: [
+      'expo-asset',
       'expo-dev-client',
       ['expo-audio', { microphonePermission: 'The-M needs your microphone to hear you speak.' }],
       'expo-secure-store',

@@ -13,7 +13,9 @@ jest.mock('expo-speech-recognition', () => ({
 }));
 jest.mock('../audio/GatewayClient', () => ({
   tts: jest.fn(),
-  GatewayError: class GatewayError extends Error { constructor(public status: number, msg: string) { super(msg); } },
+  GatewayError: class GatewayError extends Error {
+    constructor(statusCode, msg) { super(msg); this.status = statusCode; }
+  },
 }));
 jest.mock('../store/sessionModeStore', () => ({
   useSessionModeStore: { getState: () => ({ mode: 'voice' }) },
@@ -25,7 +27,9 @@ jest.mock('../store/sttStore', () => ({
 jest.mock('../ai/A2AClient', () => ({
   streamToOrchestrator: jest.fn(),
   resetConversation: jest.fn(),
-  A2AError: class A2AError extends Error { constructor(public code: number, msg: string) { super(msg); this.name = 'A2AError'; } },
+  A2AError: class A2AError extends Error {
+    constructor(errCode, msg) { super(msg); this.name = 'A2AError'; this.code = errCode; }
+  },
 }));
 
 import { VoiceController } from '../audio/VoiceController';
