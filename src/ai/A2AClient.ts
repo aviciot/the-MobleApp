@@ -200,18 +200,25 @@ export async function streamToOrchestrator(
 
   let res: Response;
   try {
-    console.log(`  ↳ fetching...`);
-    res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-        'Accept-Encoding': 'identity',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
+    console.log(`  ↳ fetching... (fetch=${fetch.name || typeof fetch})`);
+    // Race fetch against a 20s connect timeout so a non-streaming fetch doesn't hang forever
+    const connectTimeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('connect timeout')), 20_000)
+    );
+    res = await Promise.race([
+      fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          'Accept-Encoding': 'identity',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(body),
+        signal,
+      }),
+      connectTimeout,
+    ]);
   } catch (e: any) {
     const isAbort = e?.name === 'AbortError';
     console.log(`  ✗ fetch threw: ${e?.name} — ${e?.message}`);

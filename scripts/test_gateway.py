@@ -18,7 +18,7 @@ DEFAULT_BASE = "http://10.55.125.43:8088"
 TOKEN = "XMItLlhMUn1wGKJ88UudZ7irAcHEqONhZ4VFDDi0O1k"
 SLUGS = [
     {"appSlug": "freddy",        "epSlug": "a2a-1"},
-    {"appSlug": "echo-sandbox",  "epSlug": "a2a-2"},
+    {"appSlug": "stream",        "epSlug": "a2a-2"},
 ]
 
 PASS = 0
@@ -95,21 +95,18 @@ def test_a2a_send(base, s):
             task_id = body["result"].get("taskId") or body["result"].get("contextId")
             check(f"/a2a/{slug} result has taskId or contextId", bool(task_id), str(body["result"])[:120])
 
+VOICE_APP_SLUG = "freddy"
+VOICE_SLUG = "ep-voice-1"
+
 def test_tts(base):
     print("\n=== 3. TTS ===")
-    # NOTE: TTS is confirmed working inside the stack (200 audio/mpeg).
-    # Timeout from this machine = host firewall blocking TCP 8088 from outside.
-    # Phone reaches it directly over WiFi — no fix needed in the app.
-    status, _ = post(
-        f"{base}/apps/ep-voice-1/voice/tts",
-        {"text": "hello"},
-        token=TOKEN,
-        timeout=5,
-    )
+    # URL: /apps/{voiceAppSlug}/{voiceSlug}/voice/tts
+    tts_url = f"{base}/apps/{VOICE_APP_SLUG}/{VOICE_SLUG}/voice/tts"
+    status, _ = post(tts_url, {"text": "hello"}, token=TOKEN, timeout=5)
     if status is None:
-        print("  [SKIP] POST /apps/ep-voice-1/voice/tts — firewall blocks this machine, works from phone")
+        print(f"  [SKIP] POST {tts_url} — firewall blocks this machine, works from phone")
     else:
-        check("POST /apps/ep-voice-1/voice/tts reachable", status in (200, 400, 422), f"got {status}")
+        check(f"POST {tts_url} reachable", status in (200, 400, 422), f"got {status}")
 
 def test_agent_card(base, s):
     slug = f"{s['appSlug']}/{s['epSlug']}"

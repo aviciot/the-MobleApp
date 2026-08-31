@@ -61,7 +61,7 @@ Each profile has two slugs: `appSlug` (DB application record) and `epSlug` (entr
 | Profile | appSlug | epSlug | A2A URL |
 |---|---|---|---|
 | Freddy — Smoke Test | `freddy` | `a2a-1` | `.../a2a/freddy/a2a-1` |
-| File Agent (SSE) | `echo-sandbox` | `a2a-2` | `.../a2a/echo-sandbox/a2a-2` |
+| File Agent (SSE) | `stream` | `a2a-2` | `.../a2a/stream/a2a-2` |
 | Freddy — USB | `freddy` | `a2a-1` | `http://localhost:8088/a2a/freddy/a2a-1` |
 
 ---

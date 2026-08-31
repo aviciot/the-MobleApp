@@ -26,7 +26,7 @@ export const DEV_PROFILES = [
   {
     name: 'File Agent (SSE)',
     baseUrl: DIRECT,
-    appSlug: 'echo-sandbox',
+    appSlug: 'stream',
     epSlug: 'a2a-2',
     voiceAppSlug: 'freddy',
     voiceSlug: 'ep-voice-1',
