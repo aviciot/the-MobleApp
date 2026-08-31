@@ -1,15 +1,25 @@
 # Gateway Integration
 
+> For the full A2A protocol reference (Part schema, SSE events, contextId, generic client design),
+> see `docs/A2A_PROTOCOL.md`.
+
 ## Config
 
-Gateway config is dynamic — managed by `gatewayStore` (Zustand + SecureStore). The active profile is
-accessed through the `GATEWAY` proxy in `src/config.ts`, which reads the current active profile at call time.
+Gateway config is dynamic — managed by `gatewayStore` (Zustand + SecureStore).
+The active profile is accessed through the `GATEWAY` proxy in `src/config.ts`,
+which reads the current active profile at call time.
 
-Each profile stores:
-- `baseUrl` — e.g. `http://localhost:8088`
-- `appSlug` — A2A endpoint slug → `/a2a/{appSlug}`
-- `voiceSlug` — Voice endpoint slug → `/apps/{voiceSlug}/voice/tts`
-- `token` — static bearer token (not from login; auth wired in Milestone 2)
+Each `GatewayProfile` stores:
+
+| Field | Purpose |
+|---|---|
+| `baseUrl` | e.g. `http://localhost:8088` |
+| `appSlug` | A2A app record slug → used in `/a2a/{appSlug}/{epSlug}` |
+| `epSlug` | A2A entry point slug → used in `/a2a/{appSlug}/{epSlug}` |
+| `voiceAppSlug` | Voice app slug → used in `/apps/{voiceAppSlug}/{voiceSlug}/voice/tts` |
+| `voiceSlug` | Voice entry point slug |
+| `token` | Static bearer token (auth wired in Milestone 2) |
+| `sttLanguage` | Per-profile STT language: `'auto' \| 'en-US' \| 'he-IL'` |
 
 ---
 
@@ -18,13 +28,14 @@ Each profile stores:
 ```
 User holds orb
   → on-device STT via expo-speech-recognition (Google/Apple engine)
-  → interim + final results delivered via useSpeechRecognitionEvent('result')
+  → interim + final results via useSpeechRecognitionEvent('result')
 
 User releases → final STT result arrives
-  → POST /a2a/{appSlug}  (JSON-RPC 2.0, method: message/send, streaming via message/stream)
-  ← SSE stream of message-delta events → TTS sentence queue
+  → POST /a2a/{appSlug}/{epSlug}   (JSON-RPC 2.0, method: message/stream)
+  ← SSE stream: run-started → message-delta chunks → artifact-update → task-status-update(completed)
 
-  → POST /apps/{voiceSlug}/voice/tts  (JSON, { text: "..." })
+Chunks arrive → sentence splitter → markdown stripped → stripMarkdown()
+  → POST /apps/{voiceAppSlug}/{voiceSlug}/voice/tts
   ← binary MP3 → played via expo-audio
 ```
 
@@ -33,15 +44,14 @@ User releases → final STT result arrives
 ## Endpoint 1: STT — On-Device Speech Recognition
 
 Speech recognition uses **expo-speech-recognition** (on-device, no gateway round-trip).
+Language is resolved per active profile (`sttLanguage` field); `'auto'` uses device locale.
 
 ```ts
-ExpoSpeechRecognitionModule.start({ lang: 'en-US', interimResults: true, continuous: false });
+ExpoSpeechRecognitionModule.start({ lang: resolveSTTLang(profile.sttLanguage), interimResults: true, continuous: false });
 ```
 
-Events are consumed in `useVoicePipeline.ts` via `useSpeechRecognitionEvent('result')`.
-
-Each event delivers the **complete current hypothesis** (not a delta). The handler calls `setLiveText(text)`
-to replace the live transcript, not append.
+Events consumed in `useVoicePipeline.ts` via `useSpeechRecognitionEvent('result')`.
+Each event delivers the **complete current hypothesis** (not a delta) — handler replaces, doesn't append.
 
 Gateway STT (`/apps/{slug}/voice/transcribe`) is **not used**.
 
@@ -50,113 +60,95 @@ Gateway STT (`/apps/{slug}/voice/transcribe`) is **not used**.
 ## Endpoint 2: A2A Orchestrator
 
 ```
-POST /a2a/{appSlug}
+POST /a2a/{appSlug}/{epSlug}
 Content-Type: application/json
 Authorization: Bearer <token>
+Accept: text/event-stream          (streaming only)
+Accept-Encoding: identity          (streaming only — prevents buffering)
 ```
 
-### Non-streaming (sendToOrchestrator)
+### Non-Streaming (`sendToOrchestrator`)
 
-Request (JSON-RPC 2.0):
+Method: `message/send`. Used as fallback when streaming is unavailable.
+
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": "1",
-  "method": "message/send",
+  "jsonrpc": "2.0", "id": "1", "method": "message/send",
   "params": {
-    "message": {
-      "role": "user",
-      "parts": [{ "type": "text", "text": "user utterance" }],
-      "contextId": "<optional — omit on first turn>"
-    }
+    "message": { "role": "user", "parts": [{ "text": "Hello" }] }
   }
 }
 ```
 
-Response:
-```json
-{
-  "result": {
-    "contextId": "abc123",
-    "message": {
-      "parts": [{ "type": "text", "text": "AI reply" }]
-    },
-    "artifacts": []
-  }
-}
-```
+Reply text: `result.message.parts[].text` → fall back to `result.artifacts[].parts[].text`.
 
-Reply text extraction: `result.message.parts` first, then `result.artifacts` as fallback.
+### Streaming (`streamToOrchestrator`)
 
-### Streaming (streamToOrchestrator)
+Method: `message/stream`. Primary path for voice pipeline.
 
-Uses `method: "message/stream"` with `Accept: text/event-stream`. Delivers SSE events:
-- `run-started` — contextId established
-- `message-delta` — text chunk
-- `artifact-update` — card/file data
-- `task-status-update` with `state: "completed"` — terminal event
-- `error` — terminal error event
+SSE events handled:
 
-Context (`contextId`) is isolated per gateway URL + appSlug. Switching profiles resets the context for
-the old profile. The new profile starts a fresh conversation.
+| Event kind | App action |
+|---|---|
+| `run-started` | Capture `contextId` |
+| `message-delta` | Append text → fire `onChunk` → TTS sentence queue |
+| `artifact-update` | Fire `onArtifact` → `partToCard()` → card in UI |
+| `task-status-update(completed)` | Settle stream → `onDone` |
+| `task-status-update(failed/rejected)` | Settle stream → `onError` |
+| `error` | Settle stream → `onError` |
+
+See `docs/A2A_PROTOCOL.md` for the full Part schema and SSE event shapes.
 
 ---
 
-## Endpoint 3: TTS — Text to Speech
+## Endpoint 3: TTS
 
 ```
-POST /apps/{voiceSlug}/voice/tts
+POST /apps/{voiceAppSlug}/{voiceSlug}/voice/tts
 Content-Type: application/json
 Authorization: Bearer <token>
 ```
 
-Body:
-```json
-{ "text": "The text to speak" }
-```
+Body: `{ "text": "The text to speak" }`  
+Response: binary MP3. Written to `FileSystem.cacheDirectory`, played via `expo-audio`.
 
-Response: binary MP3. Fetched, written to `FileSystem.cacheDirectory`, played via `expo-audio`.
+TTS input is pre-processed:
+- Markdown stripped (`**bold**`, `*italic*`, `` `code` ``, `###`, links, `---`)
+- Emoji stripped (Unicode `\p{Emoji}`)
+- Result trimmed before synthesis
 
 ---
 
-## Error Codes
+## Error Handling
 
 | HTTP | Meaning | App action |
 |---|---|---|
-| 400 | Bad audio / wrong format | Show error card |
-| 401 | Invalid/missing token | Re-auth flow (Milestone 2) |
-| 503 | Voice not enabled on this app | Show error card |
-| 500 | Upstream TTS failure | Show error card |
+| 401 | Invalid/missing token | Error card (re-auth in Milestone 2) |
+| 400 | Bad request | Error card |
+| 500/503 | Server error | Error card |
+
+A2A errors (JSON-RPC `error` field or `task-status-update(failed)`): shown as error card.  
+Stream inactivity >15s: `onError("Stream timed out")`.  
+Connect timeout >20s: `onError("connect timeout")`.
 
 ---
 
-## Key Implementation Files
+## Key Files
 
 | File | Purpose |
 |---|---|
 | `src/config.ts` | `GATEWAY` proxy backed by `gatewayStore` |
-| `src/store/gatewayStore.ts` | Gateway profiles in SecureStore (serialized writes) |
+| `src/store/gatewayStore.ts` | Profile management, SecureStore persistence |
 | `src/audio/GatewayClient.ts` | `tts()` |
 | `src/ai/A2AClient.ts` | `sendToOrchestrator()`, `streamToOrchestrator()`, per-profile contextId |
-| `src/audio/VoiceController.ts` | Full pipeline: STT result → A2A → TTS → play |
-| `src/audio/useVoicePipeline.ts` | React hook: wires speech recognition events into VoiceController |
-
----
-
-## Stack Versions
-
-| Package | Version |
-|---|---|
-| expo | ~57.0.4 |
-| react-native | 0.86.3 |
-| react-native-reanimated | 4.5.1 |
-| expo-speech-recognition | ~57.0.1 |
-| expo-audio | ~57.0.4 |
+| `src/audio/VoiceController.ts` | Full pipeline: STT → A2A → TTS → play; `partToCard()` generic rendering |
+| `src/audio/useVoicePipeline.ts` | React hook: wires STT events into VoiceController |
 
 ---
 
 ## What Is NOT Used
 
-- Gateway STT (`/apps/{slug}/voice/transcribe`) — replaced by on-device expo-speech-recognition
+- Gateway STT (`/voice/transcribe`) — replaced by on-device expo-speech-recognition
 - WebSocket / WebRTC — reserved for future real-time path
 - `expo-av` — removed (incompatible with SDK 57 new arch), replaced by `expo-audio`
+- `type` discriminator in Part — removed (was A2A v0.3); v1.0 uses field presence

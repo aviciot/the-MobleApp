@@ -255,6 +255,7 @@ export async function streamToOrchestrator(
     switch (ev.kind) {
       case 'run-started':
         if (ev.contextId) streamContextId = ev.contextId;
+        console.log(`  ↳ [RUN] taskId=${ev.taskId ?? '?'}  contextId=${ev.contextId ?? '?'}`);
         return false;
 
       case 'message-delta':
@@ -366,6 +367,41 @@ export async function streamToOrchestrator(
     } else {
       settle(() => callbacks.onError(new A2AError(-1, 'Stream closed without a terminal event')));
     }
+  }
+}
+
+// Fetch the A2A agent card from .well-known/agent.json
+// Returns null on any error — caller decides whether to surface it
+export async function fetchAgentCard(
+  baseUrl: string,
+  appSlug: string,
+  epSlug: string,
+  token?: string,
+): Promise<import('../store/gatewayStore').AgentCard | null> {
+  const url = `${baseUrl}/a2a/${appSlug}/${epSlug}/.well-known/agent.json`;
+  try {
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    // Normalise — only keep fields we understand
+    return {
+      name: json.name ?? appSlug,
+      description: json.description,
+      version: json.version,
+      url: json.url,
+      capabilities: json.capabilities,
+      skills: Array.isArray(json.skills) ? json.skills.map((s: any) => ({
+        id: s.id ?? '',
+        name: s.name ?? s.id ?? '',
+        description: s.description,
+      })) : undefined,
+      defaultInputModes: json.defaultInputModes,
+      defaultOutputModes: json.defaultOutputModes,
+    };
+  } catch {
+    return null;
   }
 }
 

@@ -2,6 +2,22 @@ import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import { type STTLanguage } from './sttStore';
 
+// Subset of A2A agent card fields we store — enough for display + future UI adaptation
+export interface AgentCard {
+  name: string;
+  description?: string;
+  version?: string;
+  url?: string;
+  capabilities?: {
+    streaming?: boolean;
+    pushNotifications?: boolean;
+    stateTransitionHistory?: boolean;
+  };
+  skills?: { id: string; name: string; description?: string }[];
+  defaultInputModes?: string[];
+  defaultOutputModes?: string[];
+}
+
 export interface GatewayProfile {
   id: string;
   name: string;
@@ -12,6 +28,8 @@ export interface GatewayProfile {
   voiceSlug: string;
   token: string;
   sttLanguage: STTLanguage;
+  agentCard?: AgentCard;        // fetched from .well-known/agent.json on save
+  agentCardFetchedAt?: number;  // epoch ms — for future cache invalidation
 }
 
 interface GatewayStore {

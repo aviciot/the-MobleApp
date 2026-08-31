@@ -1,5 +1,17 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, Pressable, Linking } from 'react-native';
+
+function getMimeIcon(mimeType: string): string {
+  if (mimeType.startsWith('image/')) return '🖼';
+  if (mimeType.startsWith('video/')) return '🎬';
+  if (mimeType.startsWith('audio/')) return '🎵';
+  if (mimeType.includes('pdf')) return '📄';
+  if (mimeType.includes('zip') || mimeType.includes('compressed')) return '🗜';
+  if (mimeType.includes('json') || mimeType.includes('xml')) return '📋';
+  if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) return '📊';
+  if (mimeType.includes('word') || mimeType.includes('document')) return '📝';
+  return '📎';
+}
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -88,16 +100,13 @@ function CardContent({ card }: { card: CardModel }) {
     case 'file':
       return (
         <View style={styles.fileCard}>
-          {/* Red PDF icon matching reference */}
           <View style={styles.fileIconBox}>
-            <View style={styles.fileIconRed}>
-              <Text style={styles.fileIconRedText}>PDF</Text>
-            </View>
+            <Text style={styles.fileIconEmoji}>{getMimeIcon(card.mimeType ?? '')}</Text>
           </View>
           <View style={styles.fileInfo}>
-            <Text style={styles.fileName} numberOfLines={1}>{card.fileName ?? 'Q2 Report.pdf'}</Text>
+            <Text style={styles.fileName} numberOfLines={1}>{card.fileName ?? 'document'}</Text>
             <Text style={styles.fileSub}>
-              {card.sizeBytes ? `${(card.sizeBytes / 1024 / 1024).toFixed(1)} MB` : '1.8 MB'} • {(card.mimeType ?? 'application/pdf').split('/').pop()?.toUpperCase()}
+              {card.sizeBytes ? `${(card.sizeBytes / 1024 / 1024).toFixed(1)} MB • ` : ''}{(card.mimeType ?? 'application/octet-stream').split('/').pop()?.toUpperCase()}
             </Text>
           </View>
         </View>
@@ -244,18 +253,8 @@ const styles = StyleSheet.create({
 
   // ── File card ────────────────────────────────────────────
   fileCard: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52 },
-  fileIconBox: {},
-  fileIconRed: {
-    width: 42,
-    height: 48,
-    borderRadius: 8,
-    backgroundColor: '#CC2200',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,80,40,0.3)',
-  },
-  fileIconRedText: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  fileIconBox: { width: 42, alignItems: 'center', justifyContent: 'center' },
+  fileIconEmoji: { fontSize: 30 },
   fileInfo: { flex: 1 },
   fileName: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
   fileSub: { color: 'rgba(255,255,255,0.45)', fontSize: 11, marginTop: 3 },

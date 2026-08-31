@@ -127,14 +127,21 @@ export class VoiceController {
 
     // Strip markdown + emoji + separators before TTS
     const stripMarkdown = (s: string) =>
-      s.replace(/\*\*(.*?)\*\*/g, '$1')        // bold
-       .replace(/\*(.*?)\*/g, '$1')             // italic
-       .replace(/`{1,3}[^`]*`{1,3}/g, '')      // inline/block code
-       .replace(/#{1,6}\s*/g, '')               // headings
-       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
-       .replace(/[_~]/g, '')                    // underline/strikethrough
-       .replace(/^[-*]{3,}\s*$/gm, '')          // --- or *** separators
-       .replace(/\p{Emoji}/gu, '')              // emoji (✅ 👋 etc.)
+      s.replace(/\*\*(.*?)\*\*/g, '$1')         // bold → keep content
+       .replace(/\*(.*?)\*/g, '$1')              // italic → keep content
+       .replace(/`{1,3}[^`]*`{1,3}/g, '')       // code spans/blocks → drop entirely
+       .replace(/#{1,6}\s*/g, '')                // headings
+       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links → keep label
+       .replace(/[_~]/g, '')                     // underline/strikethrough chars
+       .replace(/^[-*]{3,}\s*$/gm, '')           // --- or *** separators
+       .replace(/^\|.*\|$/gm, '')                // markdown table rows
+       .replace(/\p{Emoji}/gu, '')               // emoji
+       // clean up orphaned punctuation left after code-span removal
+       .replace(/\s*→\s*/g, ' ')                 // → arrow (common in agent output)
+       .replace(/^[-*+]\s*$/gm, '')              // bullet with no content after strip
+       .replace(/^[-*+]\s*—\s*/gm, '')           // "- —" bullet+dash with no content
+       .replace(/ {2,}/g, ' ')                   // multiple spaces → single
+       .replace(/\n{2,}/g, '\n')                 // collapse blank lines
        .trim();
 
     const flushSentence = (text: string, _force = false) => {
@@ -325,31 +332,34 @@ function artifactsToCards(artifacts: A2AArtifact[]): CardModel[] {
 function partToCard(part: import('../ai/A2AClient').A2APart): CardModel | null {
   const id = `a2a-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const createdAt = Date.now();
+  const mime = part.mediaType ?? 'application/octet-stream';
+  const isImage = mime.startsWith('image/');
 
-  // File: prefer url (remote reference), fall back to raw (inline bytes)
-  if (part.url != null || part.raw != null) {
-    return {
-      id,
-      type: 'file',
-      createdAt,
-      fileName: part.filename ?? 'file',
-      sizeBytes: 0,
-      mimeType: part.mediaType ?? 'application/octet-stream',
-      remoteUri: part.url,
-    };
+  // Remote URL — image renders inline; anything else is a downloadable file card
+  if (part.url != null) {
+    if (isImage) {
+      return { id, type: 'image', createdAt, uri: part.url, fileName: part.filename ?? 'image', mimeType: mime };
+    }
+    return { id, type: 'file', createdAt, fileName: part.filename ?? 'file', sizeBytes: 0, mimeType: mime, remoteUri: part.url };
   }
 
-  // Structured data: any JSON value — render as text card (JSON preview)
+  // Inline base64 bytes — decode to a data URI so the card can render/open it
+  if (part.raw != null) {
+    const dataUri = `data:${mime};base64,${part.raw}`;
+    if (isImage) {
+      return { id, type: 'image', createdAt, uri: dataUri, fileName: part.filename ?? 'image', mimeType: mime };
+    }
+    // For non-image raw bytes expose as a file card with a data URI so FileCard's "Open ↗" still works
+    return { id, type: 'file', createdAt, fileName: part.filename ?? 'file', sizeBytes: 0, mimeType: mime, remoteUri: dataUri };
+  }
+
+  // Structured data — JSON preview as text card
   if (part.data !== undefined) {
-    const preview =
-      typeof part.data === 'string'
-        ? part.data
-        : JSON.stringify(part.data, null, 2);
+    const preview = typeof part.data === 'string' ? part.data : JSON.stringify(part.data, null, 2);
     return { id, type: 'text', createdAt, markdown: preview };
   }
 
-  // Text: only create a card if there is no stream text already shown in the reply bubble
-  // (artifact text parts are secondary content — e.g. a code block or table)
+  // Artifact text part — secondary content (code block, table, summary) shown as card
   if (part.text) {
     return { id, type: 'text', createdAt, markdown: part.text };
   }

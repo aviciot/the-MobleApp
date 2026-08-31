@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEMES, type ThemeId } from '../../theme/themes';
 import { useTheme, useSetTheme } from '../../theme/useTheme';
 import { useGatewayStore, type GatewayProfile } from '../../store/gatewayStore';
+import { fetchAgentCard } from '../../ai/A2AClient';
 import { type STTLanguage } from '../../store/sttStore';
 
 const THEME_IDS: ThemeId[] = ['cosmic', 'matrix', 'ghost', 'inferno'];
@@ -77,12 +78,21 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
       Alert.alert('Missing fields', 'Name, URL, App Slug and EP Slug are required.');
       return;
     }
+    const base = { name, baseUrl, appSlug, epSlug, voiceAppSlug: voiceAppSlug || appSlug, voiceSlug: voiceSlug || epSlug, token, sttLanguage: sttLanguage ?? 'auto' as const };
     if (editing.id) {
-      await updateProfile(editing.id, { name, baseUrl, appSlug, epSlug, voiceAppSlug: voiceAppSlug || appSlug, voiceSlug, token, sttLanguage: sttLanguage ?? 'auto' });
+      await updateProfile(editing.id, base);
     } else {
-      await addProfile({ name, baseUrl, appSlug, epSlug, voiceAppSlug: voiceAppSlug || appSlug, voiceSlug: voiceSlug || epSlug, token, sttLanguage: sttLanguage ?? 'auto' });
+      await addProfile(base);
     }
     setEditing(null);
+    // Fetch agent card in background — no await, failure is silent
+    fetchAgentCard(baseUrl, appSlug, epSlug, token).then((card) => {
+      if (!card) return;
+      // Find the profile we just saved by slug match
+      const { profiles, updateProfile: up } = useGatewayStore.getState();
+      const saved = profiles.find((p) => p.baseUrl === baseUrl && p.appSlug === appSlug && p.epSlug === epSlug);
+      if (saved) up(saved.id, { agentCard: card, agentCardFetchedAt: Date.now() });
+    });
   }
 
   function confirmDelete(p: GatewayProfile) {
@@ -278,8 +288,16 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                   >
                     <View style={styles.profileLeft}>
                       <View style={[styles.activeDot, { backgroundColor: isActive ? theme.accent : 'transparent', borderColor: theme.cardBorder }]} />
-                      <View>
-                        <Text style={[styles.profileName, { color: theme.textPrimary }]}>{p.name}</Text>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={[styles.profileName, { color: theme.textPrimary }]}>{p.name}</Text>
+                          {p.agentCard?.capabilities?.streaming && (
+                            <Text style={[styles.capBadge, { color: theme.accent, borderColor: theme.accent }]}>SSE</Text>
+                          )}
+                        </View>
+                        {p.agentCard?.description ? (
+                          <Text style={[styles.profileUrl, { color: theme.textSecondary, opacity: 1 }]} numberOfLines={1}>{p.agentCard.description}</Text>
+                        ) : null}
                         <Text style={[styles.profileUrl, { color: theme.textTertiary }]} numberOfLines={1}>{p.baseUrl}/a2a/{p.appSlug}/{p.epSlug}</Text>
                       </View>
                     </View>
@@ -389,6 +407,7 @@ const styles = StyleSheet.create({
   activeDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 1 },
   profileName: { fontSize: 14, fontWeight: '600' },
   profileUrl: { fontSize: 11, marginTop: 2, opacity: 0.7 },
+  capBadge: { fontSize: 9, fontWeight: '700', letterSpacing: 0.6, borderWidth: 1, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 },
   profileActions: { flexDirection: 'row', gap: 16, marginLeft: 8 },
   actionIcon: { fontSize: 16 },
   addBtn: {
