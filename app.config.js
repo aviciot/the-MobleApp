@@ -30,7 +30,7 @@ module.exports = {
       buildNumber: '2',
     },
     android: {
-      newArchEnabled: false,
+      newArchEnabled: true,
       package: IS_PREVIEW ? 'com.avicoiot.them.preview' : 'com.avicoiot.them',
       versionCode: 2,
       adaptiveIcon: {
