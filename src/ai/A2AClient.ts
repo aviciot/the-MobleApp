@@ -1,5 +1,4 @@
-// Use global fetch — expo/fetch requires a native EAS build (ExpoFetchModule)
-// Switch back to: import { fetch } from 'expo/fetch'; after running eas build
+import { fetch } from 'expo/fetch';
 import { GATEWAY } from '../config';
 import { useGatewayStore } from '../store/gatewayStore';
 
