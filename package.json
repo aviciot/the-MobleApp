@@ -5,7 +5,9 @@
   "dependencies": {
     "@shopify/react-native-skia": "2.6.2",
     "expo": "^57.0.4",
+    "expo-asset": "~11.1.4",
     "expo-audio": "~57.0.4",
+    "expo-constants": "~17.1.6",
     "expo-blur": "~57.0.2",
     "expo-dev-client": "~57.0.16",
     "expo-file-system": "~57.0.6",
@@ -25,8 +27,10 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.0",
     "@types/react": "~19.2.2",
     "babel-preset-expo": "^57.0.2",
+    "jest-expo": "~57.0.5",
     "sharp": "^0.35.3",
     "typescript": "~6.0.3"
   },
@@ -34,6 +38,7 @@
     "start": "expo start --localhost --scheme them",
     "android": "expo run:android",
     "ios": "expo run:ios",
+    "test": "jest",
     "web": "expo start --web"
   },
   "private": true

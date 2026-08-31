@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEMES, type ThemeId } from '../../theme/themes';
 import { useTheme, useSetTheme } from '../../theme/useTheme';
 import { useGatewayStore, type GatewayProfile } from '../../store/gatewayStore';
+import { useSTTStore, type STTLanguage } from '../../store/sttStore';
 
 const THEME_IDS: ThemeId[] = ['cosmic', 'matrix', 'ghost', 'inferno'];
 
@@ -36,6 +37,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   const theme = useTheme();
   const setTheme = useSetTheme();
   const { profiles, activeId, addProfile, updateProfile, deleteProfile, setActive } = useGatewayStore();
+  const { language: sttLanguage, setLanguage: setSttLanguage } = useSTTStore();
 
   const [editing, setEditing] = useState<EditingProfile | null>(null);
 
@@ -285,6 +287,25 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                   />
                   <Text style={[styles.swatchLabel, { color: selected ? theme.textPrimary : theme.textTertiary }]}>
                     {t.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* ── STT Language ── */}
+          <Text style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: 32 }]}>Speech Language</Text>
+          <View style={[styles.modeRow, { borderColor: theme.cardBorder, backgroundColor: theme.cardBackground }]}>
+            {([['auto', 'Auto'], ['en-US', 'English'], ['he-IL', 'Hebrew']] as [STTLanguage, string][]).map(([val, label]) => {
+              const active = sttLanguage === val;
+              return (
+                <Pressable
+                  key={val}
+                  style={[styles.modeOption, active && styles.modeOptionActive, active && { backgroundColor: theme.accent }]}
+                  onPress={() => setSttLanguage(val)}
+                >
+                  <Text style={active ? styles.modeOptionTextActive : [styles.modeOptionText, { color: theme.textTertiary }]}>
+                    {label}
                   </Text>
                 </Pressable>
               );

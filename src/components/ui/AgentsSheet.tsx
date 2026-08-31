@@ -21,9 +21,10 @@ import { useGatewayStore, type GatewayProfile } from '../../store/gatewayStore';
 interface AgentsSheetProps {
   visible: boolean;
   onClose: () => void;
+  onAgentSwitch?: () => void;
 }
 
-export function AgentsSheet({ visible, onClose }: AgentsSheetProps) {
+export function AgentsSheet({ visible, onClose, onAgentSwitch }: AgentsSheetProps) {
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const { profiles, activeId, setActive } = useGatewayStore();
@@ -45,6 +46,7 @@ export function AgentsSheet({ visible, onClose }: AgentsSheetProps) {
   const backdropStyle = useAnimatedStyle(() => ({ opacity: backdropOpacity.value }));
 
   async function selectAgent(p: GatewayProfile) {
+    onAgentSwitch?.();
     await setActive(p.id);
     onClose();
   }

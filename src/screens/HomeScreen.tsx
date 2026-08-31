@@ -20,11 +20,13 @@ import { AgentsSheet } from '../components/ui/AgentsSheet';
 import { ConversationSheet } from '../components/ui/ConversationSheet';
 import { useSessionStore } from '../store/sessionStore';
 import { useTranscriptStore } from '../store/transcriptStore';
+import { useCardStore } from '../store/cardStore';
 import { useTheme } from '../theme/useTheme';
 import { useVoicePipeline } from '../audio/useVoicePipeline';
 import { useGatewayStore } from '../store/gatewayStore';
 import { useSessionModeStore } from '../store/sessionModeStore';
 import { DEV_PROFILES } from '../config.dev';
+import { resetContextForProfile } from '../ai/A2AClient';
 
 const NAV_ITEMS = [
   { label: 'Chat', icon: '💬' },
@@ -62,11 +64,13 @@ export function HomeScreen() {
   const liveSpeaker = useTranscriptStore((s) => s.liveSpeaker);
   const finalizedTurns = useTranscriptStore((s) => s.finalizedTurns);
 
-  // Keep last spoken text visible while AI is thinking/speaking
+  // Keep last spoken text visible while AI is thinking/speaking.
+  // Also capture during 'thinking' — the final STT result arrives after state
+  // transitions away from 'userSpeaking', so we must catch it in both states.
   const lastSpokenRef = useRef('');
   const [lastSpoken, setLastSpoken] = useState('');
   useEffect(() => {
-    if (sessionState === 'userSpeaking' && liveText) {
+    if ((sessionState === 'userSpeaking' || sessionState === 'thinking') && liveSpeaker === 'user' && liveText) {
       lastSpokenRef.current = liveText;
       setLastSpoken(liveText);
     }
@@ -74,7 +78,7 @@ export function HomeScreen() {
       setLastSpoken('');
       lastSpokenRef.current = '';
     }
-  }, [sessionState, liveText]);
+  }, [sessionState, liveText, liveSpeaker]);
 
   // Pulsing dot opacity for active states
   const dotOpacity = useSharedValue(0);
@@ -209,8 +213,8 @@ export function HomeScreen() {
           </Text>
         </View>
 
-        {/* Live STT text while speaking */}
-        {sessionState === 'userSpeaking' && liveText ? (
+        {/* Live STT text while speaking or while final result arrives during thinking */}
+        {(sessionState === 'userSpeaking' || (sessionState === 'thinking' && liveSpeaker === 'user')) && liveText ? (
           <Text style={[styles.liveText, { color: theme.orbStateColors.user }]} numberOfLines={2}>
             "{liveText}"
           </Text>
@@ -269,7 +273,18 @@ export function HomeScreen() {
       </View>
 
       <SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <AgentsSheet visible={agentsOpen} onClose={() => setAgentsOpen(false)} />
+      <AgentsSheet
+        visible={agentsOpen}
+        onClose={() => setAgentsOpen(false)}
+        onAgentSwitch={() => {
+          cancel();
+          const prev = activeProfile();
+          if (prev) resetContextForProfile(prev.baseUrl, prev.appSlug);
+          useTranscriptStore.getState().clearLive();
+          useTranscriptStore.getState().finalizeTurn();
+          useCardStore.getState().clearCards();
+        }}
+      />
       <ConversationSheet
         visible={conversationOpen}
         onClose={() => setConversationOpen(false)}

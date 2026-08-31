@@ -8,6 +8,7 @@ import { tts, GatewayError } from './GatewayClient';
 import { streamToOrchestrator, resetConversation, A2AError, type A2AArtifact, type A2AFile } from '../ai/A2AClient';
 import type { CardModel } from '../store/cardStore';
 import { useSessionModeStore } from '../store/sessionModeStore';
+import { useSTTStore, resolveSTTLang } from '../store/sttStore';
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing' | 'thinking' | 'speaking' | 'error';
 
@@ -53,8 +54,9 @@ export class VoiceController {
       }
       this.recognizedText = '';
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      const { language } = useSTTStore.getState();
       ExpoSpeechRecognitionModule.start({
-        lang: 'en-US',
+        lang: resolveSTTLang(language),
         interimResults: true,
         continuous: false,
       });
@@ -195,20 +197,21 @@ export class VoiceController {
           resolve();
         },
         onError: (e) => {
-          if (e.name !== 'AbortError') {
-            if (e instanceof GatewayError) {
-              this.cb.onError(gatewayErrorMessage(e.status));
-            } else if (e instanceof A2AError) {
-              this.cb.onError(e.message);
-            } else {
-              this.cb.onError(`Error: ${(e as Error)?.message ?? 'unknown'}`);
-            }
-            this.stopAiPulse();
+          if (e.name === 'AbortError' || e.message === 'Cancelled') {
             this._pipelineRunning = false;
-            this.cb.onStateChange('idle');
-          } else {
-            this._pipelineRunning = false;
+            resolve();
+            return;
           }
+          if (e instanceof GatewayError) {
+            this.cb.onError(gatewayErrorMessage(e.status));
+          } else if (e instanceof A2AError) {
+            this.cb.onError(e.message);
+          } else {
+            this.cb.onError(`Error: ${(e as Error)?.message ?? 'unknown'}`);
+          }
+          this.stopAiPulse();
+          this._pipelineRunning = false;
+          this.cb.onStateChange('idle');
           resolve();
         },
       }, signal);
@@ -278,6 +281,8 @@ export class VoiceController {
     this.playbackSubscription?.remove();
     this.playbackSubscription = null;
     try { this.player?.pause(); } catch {}
+    this._playResolve?.();
+    this._playResolve = null;
     this.cb.onUserLevel(0);
     this.cb.onAiLevel(0);
     try { ExpoSpeechRecognitionModule.stop(); } catch {}

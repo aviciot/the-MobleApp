@@ -1,13 +1,14 @@
 // Use global fetch — expo/fetch requires a native EAS build (ExpoFetchModule)
 // Switch back to: import { fetch } from 'expo/fetch'; after running eas build
 import { GATEWAY } from '../config';
+import { useGatewayStore } from '../store/gatewayStore';
 
-// Per-gateway-per-slug context map — prevents cross-agent context leakage
+// Per-profile-per-gateway-per-slug context map — prevents cross-agent context leakage
 const contextMap = new Map<string, string>();
 let requestCounter = 0;
 
-function ctxKey(baseUrl: string, appSlug: string): string {
-  return `${baseUrl}::${appSlug}`;
+function ctxKey(baseUrl: string, appSlug: string, profileId: string): string {
+  return `${profileId}::${baseUrl}::${appSlug}`;
 }
 
 export interface A2APart {
@@ -43,8 +44,9 @@ export async function sendToOrchestrator(
   const baseUrl = GATEWAY.baseUrl;
   const appSlug = GATEWAY.appSlug;
   const token = GATEWAY.token;
+  const profileId = useGatewayStore.getState().activeId ?? 'default';
 
-  const key = ctxKey(baseUrl, appSlug);
+  const key = ctxKey(baseUrl, appSlug, profileId);
   const contextId = contextMap.get(key) ?? null;
   const id = String(++requestCounter);
 
@@ -153,8 +155,9 @@ export async function streamToOrchestrator(
   const baseUrl = GATEWAY.baseUrl;
   const appSlug = GATEWAY.appSlug;
   const token = GATEWAY.token;
+  const profileId = useGatewayStore.getState().activeId ?? 'default';
 
-  const key = ctxKey(baseUrl, appSlug);
+  const key = ctxKey(baseUrl, appSlug, profileId);
   const contextId = contextMap.get(key) ?? null;
   const id = String(++requestCounter);
   const url = `${baseUrl}/a2a/${appSlug}`;
@@ -196,6 +199,7 @@ export async function streamToOrchestrator(
 
   let res: Response;
   try {
+    console.log(`  ↳ fetching...`);
     res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -208,8 +212,13 @@ export async function streamToOrchestrator(
       signal,
     });
   } catch (e: any) {
-    const msg = e?.name === 'AbortError' ? 'Cancelled' : `Network error — ${e?.message ?? 'check gateway'}`;
-    settle(() => callbacks.onError(new A2AError(-1, msg)));
+    const isAbort = e?.name === 'AbortError';
+    console.log(`  ✗ fetch threw: ${e?.name} — ${e?.message}`);
+    if (isAbort) {
+      settle(() => {});
+    } else {
+      settle(() => callbacks.onError(new A2AError(-1, `Network error — ${e?.name}: ${e?.message ?? 'check gateway'}`)));
+    }
     return;
   }
 
@@ -281,13 +290,24 @@ export async function streamToOrchestrator(
 
       case 'task-status-update': {
         const state = ev.status?.state;
-        if (state === 'completed' || state === 'failed') {
+        if (state === 'completed') {
           for (const part of ev.status?.message?.parts ?? []) {
             if (part.text && !fullText) { fullText = part.text; callbacks.onChunk(part.text); }
           }
-          console.log(`  ↳ done (${state}): ${fullText.length} chars, ${collectedArtifacts.length} artifacts, ${collectedFiles.length} files, ${chunkCount} chunks — ${Date.now() - t0}ms`);
+          console.log(`  ↳ done (completed): ${fullText.length} chars, ${collectedArtifacts.length} artifacts, ${collectedFiles.length} files, ${chunkCount} chunks — ${Date.now() - t0}ms`);
           if (streamContextId) contextMap.set(key, streamContextId);
           settle(() => callbacks.onDone({ replyText: fullText, artifacts: collectedArtifacts, files: collectedFiles, contextId: streamContextId ?? '' }));
+          return true;
+        }
+        if (state === 'failed' || state === 'rejected') {
+          const errMsg = ev.status?.message?.parts?.find((p: any) => p.text)?.text ?? `Task ${state}`;
+          console.log(`  ↳ task ${state}: ${errMsg}`);
+          settle(() => callbacks.onError(new A2AError(-1, errMsg)));
+          return true;
+        }
+        if (state === 'cancelled') {
+          console.log(`  ↳ task cancelled`);
+          settle(() => {});
           return true;
         }
         return false;
@@ -368,14 +388,17 @@ export async function streamToOrchestrator(
 }
 
 export function resetConversation() {
-  // Reset context for the currently active gateway+slug
   const baseUrl = GATEWAY.baseUrl;
   const appSlug = GATEWAY.appSlug;
-  contextMap.delete(ctxKey(baseUrl, appSlug));
+  for (const k of contextMap.keys()) {
+    if (k.includes(`::${baseUrl}::${appSlug}`)) contextMap.delete(k);
+  }
 }
 
 export function resetContextForProfile(baseUrl: string, appSlug: string) {
-  contextMap.delete(ctxKey(baseUrl, appSlug));
+  for (const k of contextMap.keys()) {
+    if (k.includes(`::${baseUrl}::${appSlug}`)) contextMap.delete(k);
+  }
 }
 
 export class A2AError extends Error {
