@@ -5,7 +5,7 @@ import {
 } from 'expo-audio';
 import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 import { tts, GatewayError } from './GatewayClient';
-import { streamToOrchestrator, resetConversation, A2AError, type A2AArtifact, type A2AFile } from '../ai/A2AClient';
+import { streamToOrchestrator, resetConversation, A2AError, type A2AArtifact } from '../ai/A2AClient';
 import type { CardModel } from '../store/cardStore';
 import { useSessionModeStore } from '../store/sessionModeStore';
 import { resolveSTTLang } from '../store/sttStore';
@@ -200,10 +200,6 @@ export class VoiceController {
           const cards = artifactsToCards([artifact]);
           if (cards.length > 0) this.cb.onCards(cards);
         },
-        onFile: (file) => {
-          const cards = filesToCards([file]);
-          if (cards.length > 0) this.cb.onCards(cards);
-        },
         onDone: (result) => {
           onDone();
           if (mode === 'chat') {
@@ -312,60 +308,52 @@ export class VoiceController {
   }
 }
 
+// Generic A2A v1.0 Part → CardModel dispatch.
+// Content category is determined by which field is present: text / url+raw / data.
+// No agent-specific pattern matching — the agent controls the output shape.
 function artifactsToCards(artifacts: A2AArtifact[]): CardModel[] {
   const cards: CardModel[] = [];
   for (const artifact of artifacts) {
     for (const part of artifact.parts) {
-      if (part.type === 'data' && part.data) {
-        const card = dataToCard(part.data);
-        if (card) cards.push(card);
-      } else if (part.type === 'file' && part.file) {
-        // File parts inside artifacts — surface as file cards
-        cards.push({
-          id: `artifact-file-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          type: 'file' as const,
-          createdAt: Date.now(),
-          fileName: part.file.name ?? 'file',
-          sizeBytes: 0,
-          mimeType: part.file.mimeType ?? 'application/octet-stream',
-          remoteUri: part.file.uri,
-        });
-      }
+      const card = partToCard(part);
+      if (card) cards.push(card);
     }
   }
   return cards;
 }
 
-function filesToCards(files: A2AFile[]): CardModel[] {
-  return files.map((file) => ({
-    id: `file-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    type: 'file' as const,
-    createdAt: Date.now(),
-    fileName: file.name,
-    sizeBytes: 0,
-    mimeType: file.mimeType,
-    remoteUri: file.uri,
-  }));
-}
-
-function dataToCard(data: Record<string, unknown>): CardModel | null {
+function partToCard(part: import('../ai/A2AClient').A2APart): CardModel | null {
   const id = `a2a-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const createdAt = Date.now();
 
-  if (data.chart && Array.isArray((data.chart as any).series)) {
-    const chart = data.chart as any;
-    return { id, type: 'chart', createdAt, chartLabel: chart.label ?? '', series: chart.series, chartKind: chart.kind ?? 'bar' };
+  // File: prefer url (remote reference), fall back to raw (inline bytes)
+  if (part.url != null || part.raw != null) {
+    return {
+      id,
+      type: 'file',
+      createdAt,
+      fileName: part.filename ?? 'file',
+      sizeBytes: 0,
+      mimeType: part.mediaType ?? 'application/octet-stream',
+      remoteUri: part.url,
+    };
   }
-  if (data.file && typeof (data.file as any).name === 'string') {
-    const file = data.file as any;
-    return { id, type: 'file', createdAt, fileName: file.name, sizeBytes: file.size ?? 0, mimeType: file.mimeType ?? 'application/octet-stream' };
+
+  // Structured data: any JSON value — render as text card (JSON preview)
+  if (part.data !== undefined) {
+    const preview =
+      typeof part.data === 'string'
+        ? part.data
+        : JSON.stringify(part.data, null, 2);
+    return { id, type: 'text', createdAt, markdown: preview };
   }
-  if (data.status && typeof data.status === 'string') {
-    return { id, type: 'status', createdAt, text: data.status as string, level: (data.level as any) ?? 'info', autoDismissMs: 5000 };
+
+  // Text: only create a card if there is no stream text already shown in the reply bubble
+  // (artifact text parts are secondary content — e.g. a code block or table)
+  if (part.text) {
+    return { id, type: 'text', createdAt, markdown: part.text };
   }
-  if (data.title && data.body) {
-    return { id, type: 'text', createdAt, title: data.title as string, markdown: data.body as string };
-  }
+
   return null;
 }
 

@@ -10,28 +10,28 @@ function ctxKey(baseUrl: string, appSlug: string, epSlug: string, profileId: str
   return `${profileId}::${baseUrl}::${appSlug}::${epSlug}`;
 }
 
+// A2A v1.0 Part — content is identified by which field is present, not a `type` discriminator.
+// text  → plain/markdown text content
+// raw   → binary content (base64 string) — use mediaType + filename
+// url   → remote resource reference
+// data  → structured JSON value (any shape — agent-defined)
 export interface A2APart {
-  type?: 'text' | 'data' | 'file';
   text?: string;
-  data?: Record<string, unknown>;
-  file?: { name: string; mimeType: string; uri?: string };
+  raw?: string;
+  url?: string;
+  data?: unknown;
+  mediaType?: string;
+  filename?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface A2AArtifact {
   parts: A2APart[];
 }
 
-export interface A2AFile {
-  name: string;
-  mimeType: string;
-  uri?: string;
-  bytes?: string;
-}
-
 export interface A2AResult {
   replyText: string;
   artifacts: A2AArtifact[];
-  files: A2AFile[];
   contextId: string;
 }
 
@@ -57,7 +57,7 @@ export async function sendToOrchestrator(
     params: {
       message: {
         role: 'user',
-        parts: [{ type: 'text', text: userText }],
+        parts: [{ text: userText }],
         ...(contextId ? { contextId } : {}),
       },
     },
@@ -67,7 +67,7 @@ export async function sendToOrchestrator(
   const t0 = Date.now();
   console.log(`\n━━━ [A2A] REQUEST #${id} ━━━`);
   console.log(`  url:  ${url}`);
-  console.log(`  text: ${body.params.message.parts[0]?.text ?? '?'}`);
+  console.log(`  text: ${userText}`);
 
   const res = await fetch(url, {
     method: 'POST',
@@ -116,31 +116,15 @@ export async function sendToOrchestrator(
     }
   }
 
-  // Extract file artifacts
-  const files: A2AFile[] = [];
-  for (const artifact of artifacts) {
-    for (const part of artifact.parts ?? []) {
-      if (part.file) {
-        files.push({
-          name: part.file.name ?? 'file',
-          mimeType: part.file.mimeType ?? 'application/octet-stream',
-          uri: part.file.uri,
-        });
-      }
-    }
-  }
-
   const finalCtx = contextMap.get(key) ?? '';
   console.log(`  ↳ replyText (${replyText.length} chars): "${replyText.slice(0, 80)}${replyText.length > 80 ? '…' : ''}"`);
-  if (files.length > 0) console.log(`  ↳ files: ${files.map(f => f.name).join(', ')}`);
   console.log(`━━━ [A2A] DONE #${id} (${Date.now() - t0}ms) ━━━\n`);
-  return { replyText, artifacts, files, contextId: finalCtx };
+  return { replyText, artifacts, contextId: finalCtx };
 }
 
 export interface StreamCallbacks {
   onChunk: (text: string) => void;
   onArtifact?: (artifact: A2AArtifact) => void;
-  onFile?: (file: A2AFile) => void;
   onDone: (result: A2AResult) => void;
   onError: (err: Error) => void;
 }
@@ -192,7 +176,7 @@ export async function streamToOrchestrator(
     params: {
       message: {
         role: 'user',
-        parts: [{ type: 'text', text: userText }],
+        parts: [{ text: userText }],
         ...(contextId ? { contextId } : {}),
       },
     },
@@ -251,7 +235,6 @@ export async function streamToOrchestrator(
   let fullText = '';
   let streamContextId: string | null = contextId;
   const collectedArtifacts: A2AArtifact[] = [];
-  const collectedFiles: A2AFile[] = [];
   let chunkCount = 0;
 
   const dispatchSSEEvent = (dataLines: string[]): boolean => {
@@ -277,22 +260,13 @@ export async function streamToOrchestrator(
       case 'message-delta':
         for (const part of ev.parts ?? []) {
           if (part.text) { fullText += part.text; callbacks.onChunk(part.text); }
-          if (part.file) {
-            const f: A2AFile = { name: part.file.name ?? 'file', mimeType: part.file.mimeType ?? 'application/octet-stream', uri: part.file.uri };
-            collectedFiles.push(f); callbacks.onFile?.(f);
-          }
         }
         return false;
 
       case 'artifact-update': {
         const artifact: A2AArtifact = { parts: ev.parts ?? [] };
-        collectedArtifacts.push(artifact); callbacks.onArtifact?.(artifact);
-        for (const part of ev.parts ?? []) {
-          if (part.file) {
-            const f: A2AFile = { name: part.file.name ?? 'file', mimeType: part.file.mimeType ?? 'application/octet-stream', uri: part.file.uri };
-            collectedFiles.push(f); callbacks.onFile?.(f);
-          }
-        }
+        collectedArtifacts.push(artifact);
+        callbacks.onArtifact?.(artifact);
         return false;
       }
 
@@ -302,9 +276,9 @@ export async function streamToOrchestrator(
           for (const part of ev.status?.message?.parts ?? []) {
             if (part.text && !fullText) { fullText = part.text; callbacks.onChunk(part.text); }
           }
-          console.log(`  ↳ done (completed): ${fullText.length} chars, ${collectedArtifacts.length} artifacts, ${collectedFiles.length} files, ${chunkCount} chunks — ${Date.now() - t0}ms`);
+          console.log(`  ↳ done (completed): ${fullText.length} chars, ${collectedArtifacts.length} artifacts, ${chunkCount} chunks — ${Date.now() - t0}ms`);
           if (streamContextId) contextMap.set(key, streamContextId);
-          settle(() => callbacks.onDone({ replyText: fullText, artifacts: collectedArtifacts, files: collectedFiles, contextId: streamContextId ?? '' }));
+          settle(() => callbacks.onDone({ replyText: fullText, artifacts: collectedArtifacts, contextId: streamContextId ?? '' }));
           return true;
         }
         if (state === 'failed' || state === 'rejected') {
@@ -388,7 +362,7 @@ export async function streamToOrchestrator(
   if (!settled) {
     if (fullText) {
       if (streamContextId) contextMap.set(key, streamContextId);
-      settle(() => callbacks.onDone({ replyText: fullText, artifacts: collectedArtifacts, files: collectedFiles, contextId: streamContextId ?? '' }));
+      settle(() => callbacks.onDone({ replyText: fullText, artifacts: collectedArtifacts, contextId: streamContextId ?? '' }));
     } else {
       settle(() => callbacks.onError(new A2AError(-1, 'Stream closed without a terminal event')));
     }
