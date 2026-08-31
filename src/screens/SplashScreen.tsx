@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, useWindowDimensions } from 'react-native';
+import Constants from 'expo-constants';
 import { Canvas, useClock } from '@shopify/react-native-skia';
 import {
   useSharedValue,
@@ -15,6 +16,12 @@ import { TheMOrb } from '../components/orb/TheMOrb';
 interface SplashScreenProps {
   onFinish: () => void;
 }
+
+const appVersion = Constants.expoConfig?.version ?? '?';
+const nativeBuild = Constants.expoConfig?.android?.versionCode
+  ?? Constants.expoConfig?.ios?.buildNumber
+  ?? '?';
+const BUILD_LABEL = `v${appVersion} (${nativeBuild})`;
 
 export function SplashScreen({ onFinish }: SplashScreenProps) {
   const { width, height } = useWindowDimensions();
@@ -63,6 +70,7 @@ export function SplashScreen({ onFinish }: SplashScreenProps) {
           <Text style={styles.attributionName}>Avi Cohen</Text>
           <Text style={styles.attributionEmail}>avicoiot@gmail.com</Text>
         </View>
+        <Text style={styles.buildLabel}>{BUILD_LABEL}</Text>
       </Animated.View>
     </View>
   );
@@ -111,5 +119,13 @@ const styles = StyleSheet.create({
     fontWeight: '300',
     letterSpacing: 0.5,
     opacity: 0.75,
+  },
+  buildLabel: {
+    color: Colors.textTertiary,
+    fontSize: 10,
+    fontWeight: '300',
+    letterSpacing: 1,
+    opacity: 0.45,
+    marginTop: 14,
   },
 });

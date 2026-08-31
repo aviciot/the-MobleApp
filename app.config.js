@@ -5,7 +5,8 @@ module.exports = {
     name: IS_PREVIEW ? 'theM Preview' : 'theM',
     slug: 'avi',
     scheme: 'them',
-    version: '1.0.0',
+    version: '1.0.1',
+    runtimeVersion: { policy: 'appVersion' },
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'dark',
@@ -27,10 +28,12 @@ module.exports = {
     ios: {
       supportsTablet: true,
       bundleIdentifier: IS_PREVIEW ? 'com.avicoiot.them.preview' : 'com.avicoiot.them',
+      buildNumber: '2',
     },
     android: {
       newArchEnabled: false,
       package: IS_PREVIEW ? 'com.avicoiot.them.preview' : 'com.avicoiot.them',
+      versionCode: 2,
       adaptiveIcon: {
         backgroundColor: '#050510',
         foregroundImage: './assets/android-icon-foreground.png',
