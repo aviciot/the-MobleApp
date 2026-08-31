@@ -31,7 +31,9 @@ export function useVoicePipeline({ energy, amplitude }: UseVoicePipelineOptions)
           case 'transcribing':
           case 'thinking':
             finalizeTurn();
-            setLiveText('');
+            // Do NOT clear liveText here — the final STT result arrives after
+            // this state transition and needs to overwrite it. It gets cleared
+            // naturally when the AI reply starts (onReply sets new text).
             setState('thinking');
             break;
           case 'speaking':

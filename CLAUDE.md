@@ -6,11 +6,21 @@
 
 | File | Why |
 |------|-----|
+| `docs/DEV_SETUP.md` | **READ FIRST** — gateway is remote, endpoint URLs, test commands, VPN setup |
 | `docs/PHONE_SETUP.md` | ADB path, Metro start command, reconnect script, EAS build command, troubleshooting |
 | `docs/PROGRESS.md` | Current milestone, what is done, what is next, known issues |
 | `docs/ARCHITECTURE.md` | Full system design, component map, state architecture, performance rules |
 
-Do NOT ask the user how to start the server, connect the phone, or run a build — all answers are in `docs/PHONE_SETUP.md`.
+Do NOT ask the user how to start the server, connect the phone, or run a build — all answers are in the docs above.
+
+## CRITICAL: Gateway is on a REMOTE server
+
+**the-M gateway runs at `http://10.55.125.43:8088` on a remote Linux server.**
+- NEVER start Docker or any gateway service locally on this Windows machine
+- NEVER assume the gateway is down just because local Docker is not running
+- ALWAYS test an endpoint with `Invoke-RestMethod` against `10.55.125.43:8088` before changing any URL in the mobile client
+- If the gateway is unreachable from this machine, the fix is to reconnect VPN — not to start anything locally
+- See `docs/DEV_SETUP.md` for the test commands
 
 ## Quick context
 

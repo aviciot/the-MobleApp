@@ -29,13 +29,6 @@ export const DEV_PROFILES = [
     token: TOKEN,
   },
   {
-    name: 'File Agent (WS)',
-    baseUrl: DIRECT,
-    appSlug: 'ws',
-    voiceSlug: 'ep-voice-1',
-    token: TOKEN,
-  },
-  {
     name: 'Freddy — USB',
     baseUrl: USB,
     appSlug: 'a2a-1',
