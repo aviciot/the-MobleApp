@@ -16,12 +16,20 @@
 
 The Windows machine reaches the gateway over **VPN**. If `10.55.125.43` is unreachable, reconnect VPN first.
 
-To tunnel gateway through localhost (when needed):
-```
-netsh interface portproxy add v4tov4 listenport=8088 listenaddress=127.0.0.1 connectport=8088 connectaddress=10.55.125.43
-```
+### Which profile to use on the phone
 
-The phone connects **directly** to `10.55.125.43:8088` over WiFi — no tunnel needed on the phone.
+| Location | Profile to use | How it works |
+|---|---|---|
+| **Office** | Freddy — Smoke Test (WiFi) | Phone is on office network → can reach `10.55.125.43` directly |
+| **Outside office / remote** | Freddy — USB | Phone → USB cable → ADB reverse → Windows VPN → `10.55.125.43` |
+
+**Rule:** If the phone shows "connect timeout", switch to the USB profile. The USB profile always works as long as the phone is connected via cable and `reconnect.ps1` has been run.
+
+The ADB reverse tunnel is set up by `reconnect.ps1`:
+```powershell
+adb reverse tcp:8088 tcp:8088
+```
+This makes `localhost:8088` on the phone route through the Windows machine to the gateway.
 
 ---
 
