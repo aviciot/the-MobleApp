@@ -52,7 +52,7 @@ export function AgentsSheet({ visible, onClose, onAgentSwitch }: AgentsSheetProp
   }
 
   async function testAgent(p: GatewayProfile) {
-    const url = `${p.baseUrl}/a2a/${p.appSlug}`;
+    const url = `${p.baseUrl}/a2a/${p.appSlug}/${p.epSlug}`;
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -121,7 +121,7 @@ export function AgentsSheet({ visible, onClose, onAgentSwitch }: AgentsSheetProp
                 <View style={styles.cardInfo}>
                   <Text style={[styles.cardName, { color: theme.textPrimary }]}>{p.name}</Text>
                   <Text style={[styles.cardUrl, { color: theme.textTertiary }]} numberOfLines={1}>
-                    {p.baseUrl}/a2a/{p.appSlug}
+                    {p.baseUrl}/a2a/{p.appSlug}/{p.epSlug}
                   </Text>
                 </View>
 

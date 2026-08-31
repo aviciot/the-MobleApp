@@ -3,7 +3,7 @@
  */
 
 jest.mock('../config', () => ({
-  GATEWAY: { baseUrl: 'http://test:8088', appSlug: 'a2a-1', token: 'tok' },
+  GATEWAY: { baseUrl: 'http://test:8088', appSlug: 'freddy', epSlug: 'a2a-1', voiceAppSlug: 'freddy', voiceSlug: 'ep-voice-1', token: 'tok' },
 }));
 jest.mock('../store/gatewayStore', () => ({
   useGatewayStore: { getState: () => ({ activeId: 'profile-1' }) },

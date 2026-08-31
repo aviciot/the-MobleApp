@@ -30,7 +30,7 @@ interface SettingsSheetProps {
 
 type EditingProfile = Omit<GatewayProfile, 'id'> & { id?: string };
 
-const EMPTY_PROFILE: EditingProfile = { name: '', baseUrl: '', appSlug: '', voiceSlug: '', token: '' };
+const EMPTY_PROFILE: EditingProfile = { name: '', baseUrl: '', appSlug: '', epSlug: '', voiceAppSlug: '', voiceSlug: '', token: '' };
 
 export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   const insets = useSafeAreaInsets();
@@ -73,15 +73,15 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
 
   async function saveEditing() {
     if (!editing) return;
-    const { name, baseUrl, appSlug, voiceSlug, token } = editing;
-    if (!name.trim() || !baseUrl.trim() || !appSlug.trim()) {
-      Alert.alert('Missing fields', 'Name, URL and A2A Slug are required.');
+    const { name, baseUrl, appSlug, epSlug, voiceAppSlug, voiceSlug, token } = editing;
+    if (!name.trim() || !baseUrl.trim() || !appSlug.trim() || !epSlug.trim()) {
+      Alert.alert('Missing fields', 'Name, URL, App Slug and EP Slug are required.');
       return;
     }
     if (editing.id) {
-      await updateProfile(editing.id, { name, baseUrl, appSlug, voiceSlug, token });
+      await updateProfile(editing.id, { name, baseUrl, appSlug, epSlug, voiceAppSlug: voiceAppSlug || appSlug, voiceSlug, token });
     } else {
-      await addProfile({ name, baseUrl, appSlug, voiceSlug: voiceSlug || appSlug, token });
+      await addProfile({ name, baseUrl, appSlug, epSlug, voiceAppSlug: voiceAppSlug || appSlug, voiceSlug: voiceSlug || epSlug, token });
     }
     setEditing(null);
   }
@@ -94,7 +94,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
   }
 
   async function testProfile(p: GatewayProfile) {
-    const url = `${p.baseUrl}/a2a/${p.appSlug}`;
+    const url = `${p.baseUrl}/a2a/${p.appSlug}/${p.epSlug}`;
     try {
       const res = await fetch(url, {
         method: 'POST',
@@ -170,7 +170,27 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                 style={inputStyle}
                 value={editing.appSlug}
                 onChangeText={(v) => setEditing((e) => e && { ...e, appSlug: v })}
-                placeholder="debator-voice"
+                placeholder="freddy"
+                placeholderTextColor={theme.textTertiary}
+                autoCapitalize="none"
+              />
+
+              <Text style={labelStyle}>EP Slug (entry point)</Text>
+              <TextInput
+                style={inputStyle}
+                value={editing.epSlug}
+                onChangeText={(v) => setEditing((e) => e && { ...e, epSlug: v })}
+                placeholder="a2a-1"
+                placeholderTextColor={theme.textTertiary}
+                autoCapitalize="none"
+              />
+
+              <Text style={labelStyle}>Voice App Slug</Text>
+              <TextInput
+                style={inputStyle}
+                value={editing.voiceAppSlug}
+                onChangeText={(v) => setEditing((e) => e && { ...e, voiceAppSlug: v })}
+                placeholder="freddy"
                 placeholderTextColor={theme.textTertiary}
                 autoCapitalize="none"
               />
@@ -243,7 +263,7 @@ export function SettingsSheet({ visible, onClose }: SettingsSheetProps) {
                       <View style={[styles.activeDot, { backgroundColor: isActive ? theme.accent : 'transparent', borderColor: theme.cardBorder }]} />
                       <View>
                         <Text style={[styles.profileName, { color: theme.textPrimary }]}>{p.name}</Text>
-                        <Text style={[styles.profileUrl, { color: theme.textTertiary }]} numberOfLines={1}>{p.baseUrl}/{p.appSlug}</Text>
+                        <Text style={[styles.profileUrl, { color: theme.textTertiary }]} numberOfLines={1}>{p.baseUrl}/a2a/{p.appSlug}/{p.epSlug}</Text>
                       </View>
                     </View>
                     <View style={styles.profileActions}>

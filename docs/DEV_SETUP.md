@@ -35,7 +35,7 @@ Invoke-RestMethod http://10.55.125.43:8088/health/live
 
 # Test A2A endpoint — Freddy (non-streaming)
 $body = '{"jsonrpc":"2.0","id":"1","method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"hello"}]}}}'
-Invoke-RestMethod -Method POST -Uri http://10.55.125.43:8088/a2a/a2a-1 `
+Invoke-RestMethod -Method POST -Uri http://10.55.125.43:8088/a2a/freddy/a2a-1 `
   -Headers @{ Authorization = "Bearer XMItLlhMUn1wGKJ88UudZ7irAcHEqONhZ4VFDDi0O1k"; "Content-Type" = "application/json" } `
   -Body $body
 
@@ -49,19 +49,20 @@ python scripts/test_gateway.py
 
 | Purpose | Method | URL |
 |---|---|---|
-| A2A non-streaming | POST | `http://10.55.125.43:8088/a2a/{appSlug}` |
-| A2A streaming (SSE) | POST | `http://10.55.125.43:8088/a2a/{appSlug}` |
-| TTS | POST | `http://10.55.125.43:8088/apps/{voiceSlug}/voice/tts` |
+| A2A non-streaming | POST | `{baseUrl}/a2a/{appSlug}/{epSlug}` |
+| A2A streaming (SSE) | POST | `{baseUrl}/a2a/{appSlug}/{epSlug}` |
+| TTS | POST | `{baseUrl}/apps/{voiceAppSlug}/{voiceSlug}/voice/tts` |
+| Agent card | GET | `{baseUrl}/a2a/{appSlug}/{epSlug}/.well-known/agent.json` |
 
-The agent is selected by the **URL path** (`/a2a/a2a-1`, `/a2a/a2a-2`, etc.) — **not** via `metadata.skill`.
+Each profile has two slugs: `appSlug` (DB application record) and `epSlug` (entry point).
 
 ## Dev Profile Slugs
 
-| Profile | appSlug | URL |
-|---|---|---|
-| Freddy — Smoke Test | `a2a-1` | `http://10.55.125.43:8088/a2a/a2a-1` |
-| File Agent (SSE) | `a2a-2` | `http://10.55.125.43:8088/a2a/a2a-2` |
-| Freddy — USB | `a2a-1` | `http://localhost:8088/a2a/a2a-1` |
+| Profile | appSlug | epSlug | A2A URL |
+|---|---|---|---|
+| Freddy — Smoke Test | `freddy` | `a2a-1` | `.../a2a/freddy/a2a-1` |
+| File Agent (SSE) | `echo-sandbox` | `a2a-2` | `.../a2a/echo-sandbox/a2a-2` |
+| Freddy — USB | `freddy` | `a2a-1` | `http://localhost:8088/a2a/freddy/a2a-1` |
 
 ---
 

@@ -6,6 +6,8 @@ export interface GatewayProfile {
   name: string;
   baseUrl: string;
   appSlug: string;
+  epSlug: string;
+  voiceAppSlug: string;
   voiceSlug: string;
   token: string;
 }
@@ -56,7 +58,15 @@ export const useGatewayStore = create<GatewayStore>((set, get) => ({
       let changed = false;
       const profiles = all
         .filter((p) => { if (seen.has(p.id)) { changed = true; return false; } seen.add(p.id); return true; })
-        .map((p) => { if (!p.voiceSlug) { changed = true; return { ...p, voiceSlug: p.appSlug }; } return p; });
+        .map((p) => {
+          let changed_p = false;
+          const updated = { ...p } as GatewayProfile;
+          if (!updated.voiceSlug) { updated.voiceSlug = updated.appSlug; changed_p = true; }
+          if (!updated.epSlug) { updated.epSlug = updated.appSlug; changed_p = true; }
+          if (!updated.voiceAppSlug) { updated.voiceAppSlug = updated.appSlug; changed_p = true; }
+          if (changed_p) changed = true;
+          return updated;
+        });
       if (changed) persist(profiles, activeId || null);
       set({ profiles, activeId: activeId || null, hydrated: true });
     } catch {

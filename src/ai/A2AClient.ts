@@ -7,8 +7,8 @@ import { useGatewayStore } from '../store/gatewayStore';
 const contextMap = new Map<string, string>();
 let requestCounter = 0;
 
-function ctxKey(baseUrl: string, appSlug: string, profileId: string): string {
-  return `${profileId}::${baseUrl}::${appSlug}`;
+function ctxKey(baseUrl: string, appSlug: string, epSlug: string, profileId: string): string {
+  return `${profileId}::${baseUrl}::${appSlug}::${epSlug}`;
 }
 
 export interface A2APart {
@@ -43,10 +43,11 @@ export async function sendToOrchestrator(
   // Capture gateway config once — immune to mid-request profile switches
   const baseUrl = GATEWAY.baseUrl;
   const appSlug = GATEWAY.appSlug;
+  const epSlug = GATEWAY.epSlug;
   const token = GATEWAY.token;
   const profileId = useGatewayStore.getState().activeId ?? 'default';
 
-  const key = ctxKey(baseUrl, appSlug, profileId);
+  const key = ctxKey(baseUrl, appSlug, epSlug, profileId);
   const contextId = contextMap.get(key) ?? null;
   const id = String(++requestCounter);
 
@@ -63,7 +64,7 @@ export async function sendToOrchestrator(
     },
   };
 
-  const url = `${baseUrl}/a2a/${appSlug}`;
+  const url = `${baseUrl}/a2a/${appSlug}/${epSlug}`;
   const t0 = Date.now();
   console.log(`\n━━━ [A2A] REQUEST #${id} ━━━`);
   console.log(`  url:  ${url}`);
@@ -154,13 +155,14 @@ export async function streamToOrchestrator(
   // Capture gateway config once — immune to mid-request profile switches
   const baseUrl = GATEWAY.baseUrl;
   const appSlug = GATEWAY.appSlug;
+  const epSlug = GATEWAY.epSlug;
   const token = GATEWAY.token;
   const profileId = useGatewayStore.getState().activeId ?? 'default';
 
-  const key = ctxKey(baseUrl, appSlug, profileId);
+  const key = ctxKey(baseUrl, appSlug, epSlug, profileId);
   const contextId = contextMap.get(key) ?? null;
   const id = String(++requestCounter);
-  const url = `${baseUrl}/a2a/${appSlug}`;
+  const url = `${baseUrl}/a2a/${appSlug}/${epSlug}`;
   const t0 = Date.now();
 
   console.log(`\n━━━ [A2A STREAM] REQUEST #${id} ━━━`);

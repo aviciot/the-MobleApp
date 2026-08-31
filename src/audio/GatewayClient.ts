@@ -8,8 +8,9 @@ function headers(): Record<string, string> {
 }
 
 function url(path: string) {
-  const slug = GATEWAY.voiceSlug || 'ep-voice-1';
-  return `${GATEWAY.baseUrl}/apps/${slug}${path}`;
+  const voiceAppSlug = GATEWAY.voiceAppSlug || 'freddy';
+  const voiceSlug = GATEWAY.voiceSlug || 'ep-voice-1';
+  return `${GATEWAY.baseUrl}/apps/${voiceAppSlug}/${voiceSlug}${path}`;
 }
 
 // POST audio file → returns transcribed text

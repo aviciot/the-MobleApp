@@ -4,7 +4,9 @@ export const DEFAULT_GATEWAY = {
   id: 'default',
   name: 'the-M',
   baseUrl: 'http://localhost:8088',
-  appSlug: 'ep-a2a-1',
+  appSlug: 'freddy',
+  epSlug: 'a2a-1',
+  voiceAppSlug: 'freddy',
   voiceSlug: 'ep-voice-1',
   token: 'XMItLlhMUn1wGKJ88UudZ7irAcHEqONhZ4VFDDi0O1k',
 };

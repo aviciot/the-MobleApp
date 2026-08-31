@@ -16,7 +16,10 @@ import urllib.error
 
 DEFAULT_BASE = "http://10.55.125.43:8088"
 TOKEN = "XMItLlhMUn1wGKJ88UudZ7irAcHEqONhZ4VFDDi0O1k"
-SLUGS = ["a2a-1", "a2a-2"]
+SLUGS = [
+    {"appSlug": "freddy",        "epSlug": "a2a-1"},
+    {"appSlug": "echo-sandbox",  "epSlug": "a2a-2"},
+]
 
 PASS = 0
 FAIL = 0
@@ -68,7 +71,8 @@ def test_health(base):
     status, body = get(f"{base}/health/ready")
     check("/health/ready = 200", status == 200, f"got {status}")
 
-def test_a2a_send(base, slug):
+def test_a2a_send(base, s):
+    slug = f"{s['appSlug']}/{s['epSlug']}"
     print(f"\n=== 2. A2A message/send — {slug} ===")
     status, body = post(
         f"{base}/a2a/{slug}",
@@ -107,7 +111,8 @@ def test_tts(base):
     else:
         check("POST /apps/ep-voice-1/voice/tts reachable", status in (200, 400, 422), f"got {status}")
 
-def test_agent_card(base, slug):
+def test_agent_card(base, s):
+    slug = f"{s['appSlug']}/{s['epSlug']}"
     print(f"\n=== 4. Agent card — {slug} ===")
     status, body = get(f"{base}/a2a/{slug}/.well-known/agent.json")
     check(f"GET /a2a/{slug}/.well-known/agent.json = 200", status == 200, f"got {status}")
