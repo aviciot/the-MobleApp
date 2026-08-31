@@ -17,7 +17,7 @@ export function useVoicePipeline({ energy, amplitude }: UseVoicePipelineOptions)
   const player = useAudioPlayer(null);
   const controller = useRef<VoiceController | null>(null);
   const { setState } = useSessionStore();
-  const { appendToken, setLiveSpeaker, finalizeTurn } = useTranscriptStore();
+  const { appendToken, setLiveText, setLiveSpeaker, finalizeTurn } = useTranscriptStore();
   const { addCard } = useCardStore();
 
   useEffect(() => {
@@ -31,6 +31,7 @@ export function useVoicePipeline({ energy, amplitude }: UseVoicePipelineOptions)
           case 'transcribing':
           case 'thinking':
             finalizeTurn();
+            setLiveText('');
             setState('thinking');
             break;
           case 'speaking':
@@ -47,7 +48,7 @@ export function useVoicePipeline({ energy, amplitude }: UseVoicePipelineOptions)
         }
       },
       onTranscript: (text) => appendToken(text),
-      onReply: (text) => appendToken(text),
+      onReply: (text) => { setLiveSpeaker('ai'); setLiveText(text); },
       onCards: (cards) => cards.forEach((card) => addCard(card)),
       onError: (message) => {
         addCard({

@@ -1,3 +1,5 @@
+// Use global fetch — expo/fetch requires a native EAS build (ExpoFetchModule)
+// Switch back to: import { fetch } from 'expo/fetch'; after running eas build
 import { GATEWAY } from '../config';
 
 let contextId: string | null = null;
@@ -118,6 +120,244 @@ export async function sendToOrchestrator(
   if (files.length > 0) console.log(`  ↳ files: ${files.map(f => f.name).join(', ')}`);
   console.log(`━━━ [A2A] DONE #${id} (${Date.now() - t0}ms) ━━━\n`);
   return { replyText, artifacts, files, contextId: contextId ?? '' };
+}
+
+export interface StreamCallbacks {
+  onChunk: (text: string) => void;
+  onArtifact?: (artifact: A2AArtifact) => void;
+  onFile?: (file: A2AFile) => void;
+  onDone: (result: A2AResult) => void;
+  onError: (err: Error) => void;
+}
+
+// SSE streaming: fires onChunk for each message-delta, resolves with full result on done
+export async function streamToOrchestrator(
+  userText: string,
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal,
+): Promise<void> {
+  const id = String(++requestCounter);
+  const url = `${GATEWAY.baseUrl}/a2a/${GATEWAY.appSlug}`;
+  const t0 = Date.now();
+
+  console.log(`\n━━━ [A2A STREAM] REQUEST #${id} ━━━`);
+  console.log(`  url:  ${url}`);
+  console.log(`  text: "${userText.slice(0, 60)}${userText.length > 60 ? '…' : ''}"`);
+
+  // Settled guard — onDone / onError called exactly once
+  let settled = false;
+  const settle = (fn: () => void) => { if (!settled) { settled = true; fn(); } };
+
+  // Inactivity timeout — resets on every chunk, not just the first byte.
+  // Cleared in finally so it never fires after the stream ends.
+  const INACTIVITY_MS = 15_000;
+  let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+  const resetInactivity = () => {
+    if (inactivityTimer) clearTimeout(inactivityTimer);
+    inactivityTimer = setTimeout(() => {
+      settle(() => callbacks.onError(new A2AError(-1, 'Stream timed out — no data received')));
+      reader?.cancel().catch(() => {});
+    }, INACTIVITY_MS);
+  };
+
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
+  const body = {
+    jsonrpc: '2.0',
+    id,
+    method: 'message/stream',
+    params: {
+      message: {
+        role: 'user',
+        parts: [{ type: 'text', text: userText }],
+        ...(contextId ? { contextId } : {}),
+      },
+    },
+  };
+
+  // expo/fetch provides native Android streaming transport — getReader() delivers chunks before EOF
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        'Accept-Encoding': 'identity',
+        ...(GATEWAY.token ? { Authorization: `Bearer ${GATEWAY.token}` } : {}),
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (e: any) {
+    const msg = e?.name === 'AbortError' ? 'Cancelled' : `Network error — ${e?.message ?? 'check gateway'}`;
+    settle(() => callbacks.onError(new A2AError(-1, msg)));
+    return;
+  }
+
+  console.log(`  ↳ status: ${res.status}  (${Date.now() - t0}ms)`);
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    settle(() => callbacks.onError(new A2AError(res.status, err.detail ?? `A2A failed (${res.status})`)));
+    return;
+  }
+
+  reader = res.body?.getReader() ?? null;
+  if (!reader) {
+    settle(() => callbacks.onError(new A2AError(-1, 'No response body')));
+    return;
+  }
+
+  const decoder = new TextDecoder();
+  // SSE parse state — accumulate lines until a blank-line event boundary
+  let rawBuffer = '';   // bytes not yet split into lines
+  let eventLines: string[] = [];  // data:/event:/id: lines for the current SSE event
+
+  let fullText = '';
+  let streamContextId = contextId;
+  const collectedArtifacts: A2AArtifact[] = [];
+  const collectedFiles: A2AFile[] = [];
+  let chunkCount = 0;
+
+  // Returns true when a terminal A2A event was dispatched (stop reading)
+  const dispatchSSEEvent = (dataLines: string[]): boolean => {
+    // Concatenate multi-line data: values per SSE spec
+    const dataPayload = dataLines
+      .filter(l => l.startsWith('data:'))
+      .map(l => l.slice(5).trimStart())
+      .join('\n');
+
+    if (!dataPayload) return false;
+
+    let event: any;
+    try { event = JSON.parse(dataPayload); } catch { return false; }
+
+    const ev = event?.params?.event;
+    if (!ev) return false;
+    if (ev.contextId) streamContextId = ev.contextId;
+
+    switch (ev.kind) {
+      case 'run-started':
+        if (ev.contextId) streamContextId = ev.contextId;
+        return false;
+
+      case 'message-delta':
+        for (const part of ev.parts ?? []) {
+          if (part.text) { fullText += part.text; callbacks.onChunk(part.text); }
+          if (part.file) {
+            const f: A2AFile = { name: part.file.name ?? 'file', mimeType: part.file.mimeType ?? 'application/octet-stream', uri: part.file.uri };
+            collectedFiles.push(f); callbacks.onFile?.(f);
+          }
+        }
+        return false;
+
+      case 'artifact-update': {
+        const artifact: A2AArtifact = { parts: ev.parts ?? [] };
+        collectedArtifacts.push(artifact); callbacks.onArtifact?.(artifact);
+        for (const part of ev.parts ?? []) {
+          if (part.file) {
+            const f: A2AFile = { name: part.file.name ?? 'file', mimeType: part.file.mimeType ?? 'application/octet-stream', uri: part.file.uri };
+            collectedFiles.push(f); callbacks.onFile?.(f);
+          }
+        }
+        return false;
+      }
+
+      case 'task-status-update': {
+        const state = ev.status?.state;
+        if (state === 'completed' || state === 'failed') {
+          for (const part of ev.status?.message?.parts ?? []) {
+            if (part.text && !fullText) { fullText = part.text; callbacks.onChunk(part.text); }
+          }
+          console.log(`  ↳ done (${state}): ${fullText.length} chars, ${collectedArtifacts.length} artifacts, ${collectedFiles.length} files, ${chunkCount} chunks — ${Date.now() - t0}ms`);
+          if (streamContextId) contextId = streamContextId;
+          settle(() => callbacks.onDone({ replyText: fullText, artifacts: collectedArtifacts, files: collectedFiles, contextId: streamContextId ?? '' }));
+          return true;
+        }
+        return false;
+      }
+
+      case 'error':
+        settle(() => callbacks.onError(new A2AError(-1, ev.message ?? 'Stream error')));
+        return true;
+
+      default:
+        return false;
+    }
+  };
+
+  // Feed a decoded text chunk into the SSE line buffer and dispatch complete events
+  // Returns true when a terminal event was dispatched
+  const feedChunk = (text: string): boolean => {
+    rawBuffer += text;
+    // Split on \n; a blank line = event boundary (SSE spec §9.2.6)
+    while (true) {
+      const nl = rawBuffer.indexOf('\n');
+      if (nl === -1) break;
+      const line = rawBuffer.slice(0, nl).replace(/\r$/, '');
+      rawBuffer = rawBuffer.slice(nl + 1);
+
+      if (line === '') {
+        // Blank line — dispatch accumulated event lines
+        if (eventLines.length > 0) {
+          const terminal = dispatchSSEEvent(eventLines);
+          eventLines = [];
+          if (terminal) return true;
+        }
+      } else {
+        eventLines.push(line);
+      }
+    }
+    return false;
+  };
+
+  try {
+    resetInactivity(); // start first-byte timer
+
+    while (true) {
+      if (signal?.aborted) { settle(() => {}); break; }
+
+      const { done, value } = await reader.read();
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+
+      if (done) {
+        console.log(`  ↳ [STREAM] EOF at ${elapsed}s — ${chunkCount} chunks total`);
+        // Flush TextDecoder and any remaining buffer at EOF
+        const tail = decoder.decode(); // flushes internal state
+        if (tail) feedChunk(tail);
+        // Process any event accumulated without a trailing blank line
+        if (eventLines.length > 0) dispatchSSEEvent(eventLines);
+        break;
+      }
+
+      chunkCount++;
+      resetInactivity(); // reset inactivity window on every chunk
+      const chunk = decoder.decode(value, { stream: true });
+      console.log(`  ↳ [STREAM] chunk #${chunkCount} at ${elapsed}s — ${value.byteLength} bytes`);
+
+      const terminal = feedChunk(chunk);
+      if (terminal) break;
+    }
+  } catch (e: any) {
+    if (e?.name !== 'AbortError') {
+      settle(() => callbacks.onError(new A2AError(-1, `Stream read error: ${e?.message}`)));
+    }
+  } finally {
+    if (inactivityTimer) clearTimeout(inactivityTimer);
+    reader.cancel().catch(() => {});
+  }
+
+  // EOF without any terminal A2A event — incomplete stream
+  if (!settled) {
+    if (fullText) {
+      // We got text but server never sent task-status-update completed — report what we have
+      if (streamContextId) contextId = streamContextId;
+      settle(() => callbacks.onDone({ replyText: fullText, artifacts: collectedArtifacts, files: collectedFiles, contextId: streamContextId ?? '' }));
+    } else {
+      settle(() => callbacks.onError(new A2AError(-1, 'Stream closed without a terminal event')));
+    }
+  }
 }
 
 export function resetConversation() {

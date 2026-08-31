@@ -14,6 +14,7 @@ interface TranscriptStore {
   liveSpeaker: 'user' | 'ai';
   finalizedTurns: Turn[];
   appendToken: (token: string) => void;
+  setLiveText: (text: string) => void;
   finalizeTurn: () => void;
   clearLive: () => void;
   setLiveSpeaker: (s: 'user' | 'ai') => void;
@@ -24,6 +25,7 @@ export const useTranscriptStore = create<TranscriptStore>((set, get) => ({
   liveSpeaker: 'ai',
   finalizedTurns: [],
   appendToken: (token) => set((prev) => ({ liveText: prev.liveText + token })),
+  setLiveText: (text) => set({ liveText: text }),
   setLiveSpeaker: (s) => set({ liveSpeaker: s }),
   finalizeTurn: () => {
     const { liveText, liveSpeaker, finalizedTurns } = get();

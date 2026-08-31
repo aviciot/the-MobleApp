@@ -3,12 +3,9 @@ import {
   type AudioRecorder,
   type AudioPlayer,
 } from 'expo-audio';
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from 'expo-speech-recognition';
+import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 import { tts, GatewayError } from './GatewayClient';
-import { sendToOrchestrator, resetConversation, A2AError, type A2AArtifact, type A2AFile } from '../ai/A2AClient';
+import { streamToOrchestrator, resetConversation, A2AError, type A2AArtifact, type A2AFile } from '../ai/A2AClient';
 import type { CardModel } from '../store/cardStore';
 import { useSessionModeStore } from '../store/sessionModeStore';
 
@@ -29,6 +26,7 @@ export class VoiceController {
   private abortController: AbortController | null = null;
   private aiPulseInterval: ReturnType<typeof setInterval> | null = null;
   private playbackSubscription: { remove: () => void } | null = null;
+  private _playResolve: (() => void) | null = null;
   private cb: VoiceControllerCallbacks;
   private recognizedText: string = '';
 
@@ -46,7 +44,7 @@ export class VoiceController {
       this.recognizedText = '';
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       ExpoSpeechRecognitionModule.start({
-        lang: 'he-IL',
+        lang: 'en-US',
         interimResults: true,
         continuous: false,
       });
@@ -89,80 +87,149 @@ export class VoiceController {
   }
 
   private async runPipeline(userText: string) {
-    this.abortController = new AbortController();
-    const { signal } = this.abortController;
-
-    try {
-      this.cb.onStateChange('thinking');
-      const { replyText, artifacts, files } = await sendToOrchestrator(userText, signal);
-      if (signal.aborted) return;
-
-      const cards = artifactsToCards(artifacts);
-      if (cards.length > 0) this.cb.onCards(cards);
-
-      // Show file cards for any file artifacts
-      const fileCards = filesToCards(files);
-      if (fileCards.length > 0) this.cb.onCards(fileCards);
-
-      if (!replyText) { this.cb.onStateChange('idle'); return; }
-
-      this.cb.onReply(replyText);
-
-      const { mode } = useSessionModeStore.getState();
-      console.log(`[PIPELINE] mode=${mode} signal.aborted=${signal.aborted}`);
-      if (mode === 'voice') {
-        const mp3Uri = await tts(replyText, signal);
-        console.log(`[PIPELINE] after TTS signal.aborted=${signal.aborted} uri=${mp3Uri}`);
-        if (signal.aborted) { console.log('[PIPELINE] ✗ aborted before playback'); return; }
-        await this.playAudio(mp3Uri);
-      } else {
-        this.cb.onStateChange('idle');
-      }
-    } catch (e) {
-      if ((e as Error).name === 'AbortError') return;
-      if (e instanceof GatewayError) {
-        this.cb.onError(gatewayErrorMessage(e.status));
-      } else if (e instanceof A2AError) {
-        this.cb.onError(`Orchestrator error: ${e.message}`);
-      } else {
-        this.cb.onError('Something went wrong — try again');
-      }
-      this.cb.onStateChange('idle');
+    // Cancel any in-progress pipeline before starting a new one
+    if (this.abortController) {
+      this.abortController.abort();
       this.stopAiPulse();
     }
+    this.abortController = new AbortController();
+    const { signal } = this.abortController;
+    const { mode } = useSessionModeStore.getState();
+
+    this.cb.onStateChange('thinking');
+    console.log(`\n━━━ [PIPELINE] START mode=${mode} ━━━`);
+
+    // Sentence splitter — buffer chunks and flush complete sentences
+    let sentenceBuffer = '';
+    let fullReply = '';
+    let ttsQueue: Promise<void> = Promise.resolve();
+    let firstChunk = true;
+
+    const SENTENCE_END = /[.!?。！？׃\n]\s*/;
+
+    const flushSentence = (text: string, force = false) => {
+      if (!text.trim() || signal.aborted) return;
+      if (mode !== 'voice') return;
+      ttsQueue = ttsQueue.then(async () => {
+        if (signal.aborted) return;
+        try {
+          console.log(`[PIPELINE] TTS sentence: "${text.slice(0, 50)}…"`);
+          const uri = await tts(text.trim(), signal);
+          if (signal.aborted) return;
+          await this.playAudio(uri);
+        } catch (e: any) {
+          if (e?.name !== 'AbortError') console.log('[PIPELINE] TTS error:', e?.message);
+        }
+      });
+    };
+
+    const onChunk = (chunk: string) => {
+      if (signal.aborted) return;
+      fullReply += chunk;
+      this.cb.onReply(fullReply);
+
+      if (firstChunk) {
+        firstChunk = false;
+        console.log(`[PIPELINE] first chunk — switching to ${mode === 'voice' ? 'speaking' : 'thinking→reply'}`);
+        this.cb.onStateChange(mode === 'voice' ? 'speaking' : 'thinking');
+        if (mode === 'voice') this.startAiPulse();
+      }
+
+      if (mode !== 'voice') return;
+
+      sentenceBuffer += chunk;
+      // Flush whenever we have a complete sentence
+      let match: RegExpExecArray | null;
+      while ((match = SENTENCE_END.exec(sentenceBuffer)) !== null) {
+        const end = match.index + match[0].length;
+        const sentence = sentenceBuffer.slice(0, end);
+        sentenceBuffer = sentenceBuffer.slice(end);
+        if (sentence.trim()) flushSentence(sentence);
+      }
+    };
+
+    const onDone = () => {
+      if (signal.aborted) return;
+      // Flush any remaining buffered text (e.g. Hebrew sentence with no punctuation)
+      if (sentenceBuffer.trim()) flushSentence(sentenceBuffer, true);
+      sentenceBuffer = '';
+
+      // Wait for TTS queue to drain, then go idle
+      ttsQueue.then(() => {
+        if (!signal.aborted) {
+          this.stopAiPulse();
+          this.cb.onStateChange('idle');
+        }
+      });
+    };
+
+    await new Promise<void>((resolve) => {
+      streamToOrchestrator(userText, {
+        onChunk,
+        onArtifact: (artifact) => {
+          const cards = artifactsToCards([artifact]);
+          if (cards.length > 0) this.cb.onCards(cards);
+        },
+        onFile: (file) => {
+          const cards = filesToCards([file]);
+          if (cards.length > 0) this.cb.onCards(cards);
+        },
+        onDone: (result) => {
+          onDone();
+          if (mode === 'chat') {
+            this.cb.onStateChange('idle');
+          }
+          resolve();
+        },
+        onError: (e) => {
+          if (e.name !== 'AbortError') {
+            if (e instanceof GatewayError) {
+              this.cb.onError(gatewayErrorMessage(e.status));
+            } else if (e instanceof A2AError) {
+              this.cb.onError(e.message);
+            } else {
+              this.cb.onError(`Error: ${(e as Error)?.message ?? 'unknown'}`);
+            }
+            this.cb.onStateChange('idle');
+            this.stopAiPulse();
+          }
+          resolve();
+        },
+      }, signal);
+    });
   }
 
   setPlayer(player: AudioPlayer) {
     this.player = player;
   }
 
-  private async playAudio(uri: string) {
+  private async playAudio(uri: string): Promise<void> {
     if (!this.player) { console.log('[AUDIO] ✗ no player'); this.cb.onError('Player not ready'); return; }
-    this.cb.onStateChange('speaking');
-    this.startAiPulse();
-    try {
-      console.log(`\n━━━ [AUDIO] PLAY ━━━\n  uri: ${uri}`);
-      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-      this.player.replace({ uri });
-      this.player.play();
-      console.log('  ↳ play() called');
-      this.playbackSubscription?.remove();
-      this.playbackSubscription = this.player.addListener('playbackStatusUpdate', (status: any) => {
-        console.log('[AUDIO] status:', JSON.stringify(status));
-        if (status.didJustFinish) {
-          console.log('━━━ [AUDIO] DONE ━━━\n');
-          this.stopAiPulse();
-          this.cb.onStateChange('idle');
+    return new Promise<void>((resolve) => {
+      this._playResolve = resolve;
+      try {
+        console.log(`\n━━━ [AUDIO] PLAY ━━━\n  uri: ${uri}`);
+        setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).then(() => {
+          this.player!.replace({ uri });
+          this.player!.play();
+          console.log('  ↳ play() called');
           this.playbackSubscription?.remove();
-          this.playbackSubscription = null;
-        }
-      });
-    } catch (e: any) {
-      console.log('[AUDIO] ✗ error:', e?.message ?? e);
-      this.stopAiPulse();
-      this.cb.onError('Playback failed');
-      this.cb.onStateChange('idle');
-    }
+          this.playbackSubscription = this.player!.addListener('playbackStatusUpdate', (status: any) => {
+            if (status.didJustFinish) {
+              console.log('━━━ [AUDIO] DONE ━━━\n');
+              this.playbackSubscription?.remove();
+              this.playbackSubscription = null;
+              this._playResolve?.();
+              this._playResolve = null;
+            }
+          });
+        });
+      } catch (e: any) {
+        console.log('[AUDIO] ✗ error:', e?.message ?? e);
+        this.cb.onError('Playback failed');
+        resolve();
+      }
+    });
   }
 
   private startAiPulse() {
@@ -253,9 +320,11 @@ function dataToCard(data: Record<string, unknown>): CardModel | null {
 
 function gatewayErrorMessage(status: number): string {
   switch (status) {
-    case 401: return 'Not authenticated — check gateway token';
-    case 503: return 'Voice not enabled on this app';
-    case 400: return 'Audio format not accepted';
-    default:  return `Gateway error ${status} — try again`;
+    case 401:
+    case 403: return '🔑 Auth failed — token invalid or expired';
+    case 404: return '🔌 Agent not found — check app slug in Settings';
+    case 503: return '⚠️ Gateway unavailable — try again';
+    case 400: return '⚠️ Bad request — check gateway config';
+    default:  return `Gateway error ${status}`;
   }
 }
