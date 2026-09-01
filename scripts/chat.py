@@ -13,6 +13,8 @@ Run reconnect.ps1 first if not already done.
 import argparse
 import json
 import sys
+import time
+import uuid
 import urllib.request
 import urllib.error
 
@@ -61,11 +63,22 @@ def _post(url, body_dict, token, timeout=60):
 
 
 def _parse_sse(raw_text):
-    """Parse SSE body into (full_text, context_id, artifacts, error_msg)."""
+    """Parse A2A v1.0 SSE body into (full_text, context_id, artifacts, error_msg).
+
+    v1.0 event structure per frame:
+      {"jsonrpc":"2.0","id":"...","result":{"task":{...}}}
+      {"jsonrpc":"2.0","id":"...","result":{"artifactUpdate":{"artifact":{"parts":[...]}, "contextId":"...","taskId":"..."}}}
+      {"jsonrpc":"2.0","id":"...","result":{"statusUpdate":{"status":{"state":"TASK_STATE_COMPLETED"},"contextId":"...","taskId":"..."}}}
+    """
     full_text = ""
     new_ctx = None
     artifacts = []
     event_lines = []
+
+    TERMINAL_STATES = {"TASK_STATE_COMPLETED", "completed",
+                       "TASK_STATE_FAILED", "failed",
+                       "TASK_STATE_REJECTED", "rejected",
+                       "TASK_STATE_CANCELLED", "cancelled"}
 
     for line in raw_text.splitlines():
         line = line.rstrip("\r")
@@ -76,24 +89,42 @@ def _parse_sse(raw_text):
                 if not data:
                     continue
                 try:
-                    ev = json.loads(data).get("params", {}).get("event", {})
-                except:
+                    envelope = json.loads(data)
+                except Exception:
                     continue
-                kind = ev.get("kind")
-                if kind == "run-started":
-                    new_ctx = ev.get("contextId")
-                elif kind == "message-delta":
-                    for p in ev.get("parts", []):
-                        full_text += p.get("text", "")
-                elif kind == "artifact-update":
-                    artifacts.append(ev.get("parts", []))
-                elif kind == "task-status-update":
-                    if ev.get("status", {}).get("state") == "completed":
-                        for p in ev.get("status", {}).get("message", {}).get("parts", []):
-                            if p.get("text") and not full_text:
-                                full_text = p["text"]
-                elif kind == "error":
-                    return None, new_ctx, [], ev.get("message", "Stream error")
+
+                # JSON-RPC error
+                if "error" in envelope:
+                    return None, new_ctx, [], envelope["error"].get("message", "A2A error")
+
+                result = envelope.get("result", {})
+                if not result:
+                    continue
+
+                # task (first event) — extract contextId
+                if "task" in result:
+                    task = result["task"]
+                    new_ctx = task.get("contextId") or new_ctx
+
+                # artifactUpdate — text chunks + file artifacts
+                elif "artifactUpdate" in result:
+                    au = result["artifactUpdate"]
+                    new_ctx = au.get("contextId") or new_ctx
+                    parts = au.get("artifact", {}).get("parts", [])
+                    for p in parts:
+                        if p.get("text"):
+                            full_text += p["text"]
+                    file_parts = [p for p in parts if p.get("url") or p.get("raw") or p.get("data") is not None]
+                    if file_parts:
+                        artifacts.append(file_parts)
+
+                # statusUpdate — terminal state check
+                elif "statusUpdate" in result:
+                    su = result["statusUpdate"]
+                    new_ctx = su.get("contextId") or new_ctx
+                    state = su.get("status", {}).get("state", "")
+                    if state in TERMINAL_STATES and state not in ("TASK_STATE_COMPLETED", "completed"):
+                        return None, new_ctx, [], f"Task ended with state: {state}"
         else:
             event_lines.append(line)
 
@@ -103,9 +134,11 @@ def _parse_sse(raw_text):
 def send_message(base, app_slug, ep_slug, text, context_id):
     """Try message/stream first; fall back to message/send if not supported."""
     url = f"{base}/a2a/{app_slug}/{ep_slug}"
+    msg_id = f"msg-{uuid.uuid4().hex[:8]}"
     msg = {
         "role": "user",
         "parts": [{"text": text}],
+        "messageId": msg_id,
         **({"contextId": context_id} if context_id else {}),
     }
 
@@ -129,11 +162,14 @@ def send_message(base, app_slug, ep_slug, text, context_id):
                 if "error" in resp:
                     return None, context_id, [], resp["error"].get("message", "A2A error")
                 result = resp.get("result", {})
-                new_ctx = result.get("contextId") or context_id
+                # v1.0: contextId at result.contextId or result.task.contextId
+                new_ctx = (result.get("contextId")
+                           or result.get("task", {}).get("contextId")
+                           or context_id)
                 parts = result.get("message", {}).get("parts", [])
-                reply = next((p.get("text") for p in parts if p.get("text")), "")
+                reply = "".join(p.get("text", "") for p in parts if p.get("text"))
                 artifacts_raw = result.get("artifacts", [])
-                artifacts = [a.get("parts", []) for a in artifacts_raw]
+                artifacts = [a.get("parts", a.get("artifact", {}).get("parts", [])) for a in artifacts_raw]
                 return reply, new_ctx, artifacts, None
             return None, context_id, [], as_json["error"].get("message", "A2A error")
     except (json.JSONDecodeError, KeyError):

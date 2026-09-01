@@ -58,6 +58,7 @@ export async function sendToOrchestrator(
       message: {
         role: 'user',
         parts: [{ text: userText }],
+        messageId: `msg-${id}-${Date.now()}`,
         ...(contextId ? { contextId } : {}),
       },
     },
@@ -96,21 +97,25 @@ export async function sendToOrchestrator(
 
   const result = json.result;
 
-  // Persist contextId scoped to this gateway+slug
-  const newCtx = result?.contextId ?? result?.message?.contextId ?? null;
+  // A2A v1.0: contextId may live at result.contextId or result.task.contextId
+  const newCtx = result?.contextId ?? result?.task?.contextId ?? result?.message?.contextId ?? null;
   if (newCtx) contextMap.set(key, newCtx);
 
-  const artifacts: A2AArtifact[] = result?.artifacts ?? [];
+  // A2A v1.0: artifacts at result.artifacts[]; each has artifact.parts[]
+  const rawArtifacts: any[] = result?.artifacts ?? [];
+  const artifacts: A2AArtifact[] = rawArtifacts.map((a: any) => ({
+    parts: a.parts ?? a.artifact?.parts ?? [],
+  }));
 
-  // Prefer result.message.parts text; fall back to artifact text
+  // Prefer result.message.parts text; fall back to artifact text parts
   let replyText = '';
   for (const part of result?.message?.parts ?? []) {
-    if (part.text) { replyText = part.text; break; }
+    if (part.text) { replyText += part.text; }
   }
   if (!replyText) {
     for (const artifact of artifacts) {
       for (const part of artifact.parts ?? []) {
-        if (part.text) { replyText = part.text; break; }
+        if (part.text) { replyText += part.text; }
       }
       if (replyText) break;
     }
@@ -177,6 +182,7 @@ export async function streamToOrchestrator(
       message: {
         role: 'user',
         parts: [{ text: userText }],
+        messageId: `msg-${id}-${Date.now()}`,
         ...(contextId ? { contextId } : {}),
       },
     },
@@ -237,6 +243,12 @@ export async function streamToOrchestrator(
   const collectedArtifacts: A2AArtifact[] = [];
   let chunkCount = 0;
 
+  // A2A v1.0 SSE event parser.
+  // Each SSE frame is a full JSON-RPC envelope: {"jsonrpc":"2.0","id":"...","result":{...}}
+  // result shapes:
+  //   { task: { id, contextId, status: { state } } }           — task accepted
+  //   { artifactUpdate: { artifact: { parts[] }, contextId, taskId } } — text / file chunk
+  //   { statusUpdate: { status: { state }, contextId, taskId } }        — terminal state
   const dispatchSSEEvent = (dataLines: string[]): boolean => {
     const dataPayload = dataLines
       .filter(l => l.startsWith('data:'))
@@ -245,64 +257,80 @@ export async function streamToOrchestrator(
 
     if (!dataPayload) return false;
 
-    let event: any;
-    try { event = JSON.parse(dataPayload); } catch { return false; }
+    let envelope: any;
+    try { envelope = JSON.parse(dataPayload); } catch { return false; }
 
-    const ev = event?.params?.event;
-    if (!ev) return false;
-    if (ev.contextId) streamContextId = ev.contextId;
+    // Surface-level JSON-RPC error
+    if (envelope?.error) {
+      const code = envelope.error.code;
+      const msg = envelope.error.message ?? 'A2A error';
+      console.log(`  ↳ [SSE] JSON-RPC error ${code}: ${msg}`);
+      settle(() => callbacks.onError(new A2AError(code, msg)));
+      return true;
+    }
 
-    switch (ev.kind) {
-      case 'run-started':
-        if (ev.contextId) streamContextId = ev.contextId;
-        console.log(`  ↳ [RUN] taskId=${ev.taskId ?? '?'}  contextId=${ev.contextId ?? '?'}`);
-        return false;
+    const result = envelope?.result;
+    if (!result) return false;
 
-      case 'message-delta':
-        for (const part of ev.parts ?? []) {
-          if (part.text) { fullText += part.text; callbacks.onChunk(part.text); }
+    // ── task (first event) ─────────────────────────────────────────────────────
+    if (result.task) {
+      const task = result.task;
+      if (task.contextId) streamContextId = task.contextId;
+      const taskId = task.id ?? '?';
+      const state = task.status?.state ?? '?';
+      console.log(`  ↳ [TASK] id=${taskId}  contextId=${streamContextId ?? '?'}  state=${state}`);
+      return false;
+    }
+
+    // ── artifactUpdate ─────────────────────────────────────────────────────────
+    if (result.artifactUpdate) {
+      const au = result.artifactUpdate;
+      if (au.contextId) streamContextId = au.contextId;
+      const parts: any[] = au.artifact?.parts ?? [];
+      for (const part of parts) {
+        if (part.text) {
+          fullText += part.text;
+          callbacks.onChunk(part.text);
         }
-        return false;
-
-      case 'artifact-update': {
-        const artifact: A2AArtifact = { parts: ev.parts ?? [] };
+      }
+      // Emit as artifact if any non-text parts, or if the artifact carries file data
+      const hasFile = parts.some((p: any) => p.url != null || p.raw != null || p.data !== undefined);
+      if (hasFile) {
+        const artifact: A2AArtifact = { parts };
         collectedArtifacts.push(artifact);
         callbacks.onArtifact?.(artifact);
-        return false;
       }
-
-      case 'task-status-update': {
-        const state = ev.status?.state;
-        if (state === 'completed') {
-          for (const part of ev.status?.message?.parts ?? []) {
-            if (part.text && !fullText) { fullText = part.text; callbacks.onChunk(part.text); }
-          }
-          console.log(`  ↳ done (completed): ${fullText.length} chars, ${collectedArtifacts.length} artifacts, ${chunkCount} chunks — ${Date.now() - t0}ms`);
-          if (streamContextId) contextMap.set(key, streamContextId);
-          settle(() => callbacks.onDone({ replyText: fullText, artifacts: collectedArtifacts, contextId: streamContextId ?? '' }));
-          return true;
-        }
-        if (state === 'failed' || state === 'rejected') {
-          const errMsg = ev.status?.message?.parts?.find((p: any) => p.text)?.text ?? `Task ${state}`;
-          console.log(`  ↳ task ${state}: ${errMsg}`);
-          settle(() => callbacks.onError(new A2AError(-1, errMsg)));
-          return true;
-        }
-        if (state === 'cancelled') {
-          console.log(`  ↳ task cancelled`);
-          settle(() => {});
-          return true;
-        }
-        return false;
-      }
-
-      case 'error':
-        settle(() => callbacks.onError(new A2AError(-1, ev.message ?? 'Stream error')));
-        return true;
-
-      default:
-        return false;
+      return false;
     }
+
+    // ── statusUpdate ───────────────────────────────────────────────────────────
+    if (result.statusUpdate) {
+      const su = result.statusUpdate;
+      if (su.contextId) streamContextId = su.contextId;
+      const state: string = su.status?.state ?? '';
+
+      if (state === 'TASK_STATE_COMPLETED' || state === 'completed') {
+        console.log(`  ↳ done (${state}): ${fullText.length} chars, ${collectedArtifacts.length} artifacts, ${chunkCount} chunks — ${Date.now() - t0}ms`);
+        if (streamContextId) contextMap.set(key, streamContextId);
+        settle(() => callbacks.onDone({ replyText: fullText, artifacts: collectedArtifacts, contextId: streamContextId ?? '' }));
+        return true;
+      }
+      if (state === 'TASK_STATE_FAILED' || state === 'failed' || state === 'TASK_STATE_REJECTED' || state === 'rejected') {
+        const errMsg = `Task ${state}`;
+        console.log(`  ↳ ${errMsg}`);
+        settle(() => callbacks.onError(new A2AError(-1, errMsg)));
+        return true;
+      }
+      if (state === 'TASK_STATE_CANCELLED' || state === 'cancelled') {
+        console.log(`  ↳ task cancelled`);
+        settle(() => {});
+        return true;
+      }
+      console.log(`  ↳ [STATUS] state=${state}`);
+      return false;
+    }
+
+    return false;
   };
 
   const feedChunk = (text: string): boolean => {
