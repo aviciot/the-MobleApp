@@ -3,8 +3,11 @@
 chat.py — Interactive CLI chat with any A2A agent endpoint.
 
 Usage:
-    python scripts/chat.py
+    python scripts/chat.py                                    # uses localhost:8088 via ADB tunnel
     python scripts/chat.py --base-url http://10.55.125.43:8088
+
+Requires: phone connected via USB + ADB reverse tunnel active.
+Run reconnect.ps1 first if not already done.
 """
 
 import argparse
@@ -15,7 +18,7 @@ import urllib.error
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-DEFAULT_BASE = "http://10.55.125.43:8088"
+DEFAULT_BASE = "http://localhost:8088"   # ADB reverse tunnel — same as phone USB profile
 TOKEN = "XMItLlhMUn1wGKJ88UudZ7irAcHEqONhZ4VFDDi0O1k"
 
 ENDPOINTS = [
@@ -107,7 +110,7 @@ def send_message(base, app_slug, ep_slug, text, context_id):
     }
 
     # ── Try streaming ─────────────────────────────────────────────────────────
-    status, body = _post(url, {"jsonrpc": "2.0", "id": "1", "method": "message/stream", "params": {"message": msg}}, TOKEN)
+    status, body = _post(url, {"jsonrpc": "2.0", "id": "1", "method": "SendStreamingMessage", "params": {"message": msg}}, TOKEN)
     if status is None:
         return None, context_id, [], f"Network error: {body.decode()}"
 
@@ -119,7 +122,7 @@ def send_message(base, app_slug, ep_slug, text, context_id):
         if "error" in as_json:
             if as_json["error"].get("code") == -32601:
                 # method/stream not supported — fall back to message/send
-                status2, body2 = _post(url, {"jsonrpc": "2.0", "id": "1", "method": "message/send", "params": {"message": msg}}, TOKEN)
+                status2, body2 = _post(url, {"jsonrpc": "2.0", "id": "1", "method": "SendMessage", "params": {"message": msg}}, TOKEN)
                 if status2 != 200:
                     return None, context_id, [], f"HTTP {status2}: {body2.decode()[:120]}"
                 resp = json.loads(body2.decode())
@@ -155,6 +158,22 @@ def main():
     print(f"  the-M  A2A Chat")
     print(f"  Gateway: {base}")
     print(f"{'━'*52}\n")
+
+    # ── Connectivity check ────────────────────────────────────────────────────
+    print("Checking gateway...", end=" ", flush=True)
+    try:
+        req = urllib.request.Request(f"{base}/health/live")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            print("OK\n")
+    except Exception:
+        print("FAILED")
+        print(f"\n  Cannot reach {base}")
+        if "localhost" in base:
+            print("  ADB tunnel may not be active. Run: reconnect.ps1")
+            print("  Or connect with direct IP: python scripts/chat.py --base-url http://10.55.125.43:8088")
+        else:
+            print("  Check VPN and gateway status.")
+        sys.exit(1)
 
     # ── Select endpoint ───────────────────────────────────────────────────────
     print("Available agents:\n")
@@ -211,7 +230,13 @@ def main():
         reply, new_ctx, artifacts, err = send_message(base, ep["appSlug"], ep["epSlug"], user_input, context_id)
 
         if err:
-            print(f"\n[ERROR] {err}\n")
+            if "method not found" in err.lower() or "-32601" in err:
+                print(f"\n[ERROR] Gateway rejected the request — A2A methods not reachable from this machine.")
+                print(f"  Make sure the ADB tunnel is active: run reconnect.ps1")
+                print(f"  Or pass the direct IP: python scripts/chat.py --base-url http://10.55.125.43:8088")
+            else:
+                print(f"\n[ERROR] {err}")
+            print()
             continue
 
         context_id = new_ctx

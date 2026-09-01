@@ -83,11 +83,11 @@ def test_a2a_endpoint(base, s):
     """
     slug = f"{s['appSlug']}/{s['epSlug']}"
     print(f"\n=== 2. A2A endpoint — {slug} ===")
-    # Try message/stream first; fall back to checking we get a valid JSON-RPC error
+    # Use SendMessage (non-streaming) for connectivity test — SendStreamingMessage keeps connection open
     status, body = post(
         f"{base}/a2a/{slug}",
         {
-            "jsonrpc": "2.0", "id": "1", "method": "message/stream",
+            "jsonrpc": "2.0", "id": "1", "method": "SendMessage",
             "params": {"message": {"role": "user", "parts": [{"text": "hello"}]}}
         },
         token=TOKEN,
@@ -97,7 +97,6 @@ def test_a2a_endpoint(base, s):
         is_jsonrpc = "result" in body or "error" in body
         check(f"/a2a/{slug} returns valid JSON-RPC envelope", is_jsonrpc, str(body)[:120])
         if "result" in body:
-            # message/stream worked (streaming supported from this machine)
             result = body["result"]
             ctx_id = result.get("contextId")
             check(f"/a2a/{slug} result has contextId", bool(ctx_id), str(result)[:120])
@@ -105,8 +104,7 @@ def test_a2a_endpoint(base, s):
             reply_text = next((p.get("text") for p in parts if p.get("text")), None)
             check(f"/a2a/{slug} reply has text", bool(reply_text), str(parts)[:80])
         elif body.get("error", {}).get("code") == -32601:
-            # method not found — endpoint is up but streaming only testable from phone
-            print(f"  [SKIP] message/stream not reachable from this machine (gateway routing) — works from phone")
+            print(f"  [FAIL] SendMessage returned METHOD_NOT_FOUND — check A2A v1.0 method names on bridge")
 
 VOICE_APP_SLUG = "freddy"
 VOICE_SLUG = "ep-voice-1"

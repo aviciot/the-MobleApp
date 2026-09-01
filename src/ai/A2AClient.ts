@@ -53,7 +53,7 @@ export async function sendToOrchestrator(
   const body = {
     jsonrpc: '2.0',
     id,
-    method: 'message/send',
+    method: 'SendMessage',
     params: {
       message: {
         role: 'user',
@@ -172,7 +172,7 @@ export async function streamToOrchestrator(
   const body = {
     jsonrpc: '2.0',
     id,
-    method: 'message/stream',
+    method: 'SendStreamingMessage',
     params: {
       message: {
         role: 'user',
